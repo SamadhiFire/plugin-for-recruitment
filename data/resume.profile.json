@@ -1,0 +1,164 @@
+{
+  "meta": {
+    "version": 2,
+    "updatedAt": "2026-09-21T00:00:00.000Z",
+    "source": "陈炀-深圳大学2.0（AI产品版）.docx",
+    "policy": "本文件是唯一事实源。所有未明确写在这里的信息，模型必须标记为待确认。"
+  },
+  "basics": {
+    "name": "陈炀",
+    "gender": "男",
+    "birthDate": "2000-07-11",
+    "phone": "+86 158-1687-1189",
+    "phoneCountry": "中国（+86）",
+    "phoneNumber": "15816871189",
+    "email": "3253013790@qq.com",
+    "idType": "中国-居民身份证",
+    "idNumber": "430521200007112853",
+    "nationality": "中国",
+    "hometown": {
+      "country": "中国",
+      "province": "湖南省",
+      "city": "邵阳市"
+    },
+    "hometownText": "中国 / 湖南省 / 邵阳市",
+    "interviewLocation": "深圳市",
+    "portfolio": "https://cvofchenyang.xin/",
+    "github": "https://github.com/SamadhiFire",
+    "summary": [
+      "复合背景：新传硕士/英语专八 + AI 产品与独立开发者，兼具技术理解、商业敏感度与跨国/多语言视角。",
+      "AI 落地实战：熟悉 Agent 工作流编排、企业级 RAG（混合检索/重排/防幻觉）与 Evals 评测体系；具备从 0-1 工具研发到千万级/数十万级 DAU 复杂场景落地与 Badcase 归因治理经验。",
+      "全栈商业化：具备 Vibe Coding 独立产品正向盈利经验，兼具数据分析、用户增长与商业化转化思维。"
+    ]
+  },
+  "education": [
+    {
+      "school": "深圳大学",
+      "schoolEnglish": "Shenzhen University",
+      "college": "传播学院",
+      "location": { "country": "中国", "province": "广东省", "city": "深圳市" },
+      "locationText": "中国 / 广东省 / 深圳市",
+      "major": "新闻与传播",
+      "majorCategory": "新闻传播学",
+      "degree": "硕士",
+      "degreeCode": "2",
+      "start": "2024.09",
+      "end": "2027.06",
+      "educationType": "全日制",
+      "exchange": "否",
+      "jointProgram": "否",
+      "rank": "前10%",
+      "gpa": null,
+      "advisor": "巢乃鹏",
+      "nationalKeyLab": "是",
+      "laboratory": "深圳大学智能传播与数字社会治理实验室"
+    },
+    {
+      "school": "香港浸会大学",
+      "college": "传理学院",
+      "location": { "country": "香港（中国）", "province": "香港特别行政区", "city": "九龙" },
+      "locationText": "香港（中国） / 香港特别行政区 / 九龙",
+      "major": "新闻与传播",
+      "majorCategory": "新闻传播学",
+      "degree": "硕士（Master）",
+      "start": "2025.09",
+      "end": "2026.02",
+      "educationType": "非全日制",
+      "exchange": "是",
+      "jointProgram": "否",
+      "rank": "前10%",
+      "gpa": null,
+      "advisor": "张引",
+      "nationalKeyLab": null,
+      "laboratory": null
+    },
+    {
+      "school": "湖南工业大学",
+      "college": "经济与贸易学院",
+      "location": { "country": "中国", "province": "湖南省", "city": "株洲市" },
+      "locationText": "中国 / 湖南省 / 株洲市",
+      "major": "国际经济与贸易",
+      "minor": "翻译",
+      "majorCategory": "应用经济学",
+      "degree": "本科",
+      "start": "2018.09",
+      "end": "2022.07",
+      "educationType": "全日制",
+      "exchange": "否",
+      "jointProgram": "否",
+      "rank": "前20%",
+      "gpa": null,
+      "advisor": null,
+      "nationalKeyLab": null,
+      "laboratory": null
+    }
+  ],
+  "experience": [
+    {
+      "company": "深圳市万声音乐文化",
+      "aliases": ["深圳市万声文化科技有限公司", "万声音乐", "Vanso"],
+      "role": "AI产品经理",
+      "start": "2026.05",
+      "end": "2026.09",
+      "bullets": [
+        "AI 音乐产品 0-1：面向 OPPO 海外版 50 万级 DAU 及 Vanso 独立端，负责 AI 音乐产品 MVP 验证。设计“听歌用户→AI 创作者”旅程与转化漏斗，上线风格/情绪/BPM 预设标签、灵感搭子、双候选 A/B 测试、同款衍生 Prompt/Seed 继承及播放页二元情绪埋点；OPPO 端 AI 创作渗透率约 0.6%→1.3%+，独立端 AIGC 创作者规模提升 10×+，创作者次留 18%→30%+。",
+        "AI 互动机器人：针对冷启动期首发作品缺乏互动、创作者流失，基于用户生命周期构建 24 类动态人设及“新作实时响应—24h 常规—7d 长尾”分时触达；搭建账号权限池、频控冷却和人机数据隔离，规避互评自激。上线后真人及创作者净点赞率相对提升 19.7%/26.3%；以点赞/回复分化矩阵定位评论同质化 Badcase，迭代 Prompt 约束与 Few-shot 样例。",
+        "多语言 AI 工具平台：负责海外运营工具从需求梳理到交付，围绕趋势监测、赛事推送、舆情雷达整合 21 类海外信源、覆盖 7 种语言，日均聚合 300+ 条信息；将热点检索与整理从 30–60 分钟压缩至 5–10 分钟，团队周使用率 60%+，能力沉淀至公司级多语言平台 NanoLoc。"
+      ]
+    },
+    {
+      "company": "深圳市深度国际数据科技",
+      "role": "AI产品经理",
+      "start": "2024.11",
+      "end": "2025.03",
+      "bullets": [
+        "企业融资智能助手：面向中小微企业融资产品筛选依赖人工、政策理解和准入判断成本高的问题，设计基于企业画像的智能匹配助手；将地域、企业类型、成立年限、融资额度等硬条件规则化，结合 RAG 完成产品匹配、政策解释、准入差距分析和个性化材料清单生成。",
+        "Evals 与 Badcase 优化：构建覆盖典型企业画像、边界条件、失效政策的离线评测集；针对跨地区推荐、旧政策引用、条件幻觉等 Badcase，迭代 Rule Filter 硬性前置拦截 + Hybrid 混合检索 + Rerank 语义重排架构，Top-3 有效推荐率 72%→89%，硬条件误判率 11%→3%，引用支撑率 82%→95%。"
+      ]
+    },
+    {
+      "company": "深圳市丰巢科技",
+      "role": "产品运营（会员增长/商业化）",
+      "start": "2025.11",
+      "end": "2026.03",
+      "bullets": [
+        "会员分层与商业化增长：负责日均 300 万级核心点位商业化运营，基于 8.6 亿用户底数构建“生命周期（新客/临期/过期）×30 日寄件频次”二维分层模型，推行“存量转年卡、高频转寄件”差异化定价矩阵；在转化率稳定前提下，净客单价 1.41 元→7.71 元，核心点位 eCPM 7.95→31.02（近 4 倍），非续费净 GMV 单月增长 200%。",
+        "多端转化链路优化：梳理“取件-滞留-提醒”等 10+ 线上线下触点，定位传统活动页跳出率 >70% 的断流点，推动 H5 场景化一键直购短链路改造，承接位 eCPM 相对活动页提升 2.5 倍；以季节性、链路缩短、精准分层建立四因子归因模型，配合 10% Holdout 对照组 A/B 测试，日均非续费订单 7k→1.5w+，实验组净增量 38%。"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "恋爱大师（Love Master）",
+      "type": "独立产品",
+      "dates": "待确认",
+      "url": "https://www.miaoda.cn/apps/app-c5gaank23bpd",
+      "description": "针对亲密关系中隐性操控与沟通内耗，打造“反套路模拟实战与边界表达沙盒”，助用户从被动内耗转为清醒立边界。设计 7 大关系阶段演练、7 类高耗能人设主动交互，结合伴随式 AI 情感观察卡与 3 阶边界回复生成器；基于 React+Node.js 全栈交付，跑通 9.9 元/季 Pro 订阅闭环，获客 2,000+ 并实现正向盈利。"
+    },
+    {
+      "name": "毛选参谋（AI Skill）",
+      "aliases": ["毛选决策参谋（AI Agent Skill）", "毛选决策参谋"],
+      "type": "开源项目",
+      "dates": "待确认",
+      "url": "https://github.com/SamadhiFire/xinqingnian-maoxuan-skill",
+      "description": "将毛选思想工程化蒸馏为决策辅助工具，提炼 184 维度与 8 张决策卡，构建“澄清问清→矛盾拆局→定路线→交付 Mermaid 图报告”推演流；在小红书获 3,000+ 点赞收藏，并向 3 个近 2,000 Stars 开源项目贡献代码，涉及 NLP 模型缓存、AI 搜索响应解析及浏览器自动化。"
+    },
+    {
+      "name": "自媒体运营（校园项目负责人）",
+      "type": "内容增长",
+      "dates": "待确认",
+      "description": "统筹 15 人团队，搭建从选题策划、脚本打磨到矩阵分发的内容生产 SOP；单条视频最高播放近 900 万，收获 38 万+ 点赞、12 万+ 分享，沉淀 C 端用户洞察并赋能 AI 产品获客。"
+    }
+  ],
+  "skills": [
+    "AI 产品：Agent 工作流编排、企业级 RAG、Hybrid 混合检索、Rerank 语义重排、Evals 评测、Prompt Engineering、Badcase 归因治理。",
+    "产品与增长：用户分层、转化漏斗、埋点设计、A/B 测试、归因分析、商业化定价、eCPM、GMV、留存。",
+    "技术：React、Node.js、Vibe Coding；英文专业八级，多语言/海外运营场景。"
+  ],
+  "writingRules": [
+    "使用分点和换行，不把多项工作压成一整段。",
+    "每点优先顺序：结果指标 > 关键动作 > 方法论 > 背景。",
+    "保留真实 AI、增长和商业化关键词，不降低信息密度。",
+    "不得新增未证实的时间、金额、用户数、产品名称或成绩。"
+  ]
+}

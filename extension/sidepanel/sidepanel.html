@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>求职简历助手</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand-mark">R</div>
+      <div class="brand-copy">
+        <h1>简历助手</h1>
+        <p id="connection">正在连接本地简历库…</p>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero-card">
+        <div class="section-heading">
+          <div>
+            <h2>一键填写当前页面</h2>
+            <p>识别字段、补齐经历，先预览再填入。</p>
+          </div>
+          <span id="planCount" class="status-pill">尚未扫描</span>
+        </div>
+
+        <label for="variant">投递侧重</label>
+        <select id="variant">
+          <option value="ai_pm">AI 产品经理</option>
+          <option value="product_ops">产品运营 / 商业化</option>
+        </select>
+
+        <label for="autoInstruction">岗位 / JD 补充要求 <span>可选</span></label>
+        <textarea id="autoInstruction" rows="3" placeholder="例如：突出海外 AI 产品、RAG 与增长实验"></textarea>
+
+        <button id="buildPlan" class="primary wide">扫描并生成填表计划</button>
+        <p id="planStatus" class="helper"></p>
+        <div id="plan" class="plan-list"></div>
+        <button id="executePlan" class="primary wide" disabled>确认并填入已勾选内容</button>
+        <button id="rememberPage" class="quiet wide">记住当前页的补充答案</button>
+        <p class="safe-note">仅填写，不会点击招聘网站的保存、下一步或提交。</p>
+      </section>
+
+      <details class="panel-card">
+        <summary>
+          <span><strong>千问与本地服务</strong><small>密钥和模型设置</small></span>
+          <span id="keyStatus" class="status-pill"></span>
+        </summary>
+        <div class="details-body">
+          <p class="helper">首次使用请双击插件目录中的“启动助手.cmd”。密钥仅保存在本机。</p>
+          <label for="apiKey">千问 API Key</label>
+          <input id="apiKey" type="password" autocomplete="off" placeholder="留空则保留当前密钥" />
+          <label for="model">模型</label>
+          <input id="model" value="qwen3.8-max" />
+          <button id="saveConfig" class="quiet">保存本地设置</button>
+        </div>
+      </details>
+
+      <details class="panel-card">
+        <summary><span><strong>单字段文案</strong><small>生成、编辑并填入当前字段</small></span></summary>
+        <div class="details-body">
+          <label for="task">内容类型</label>
+          <select id="task">
+            <option value="experience">经历描述</option>
+            <option value="project">项目描述</option>
+            <option value="skills">专业技能</option>
+            <option value="summary">个人优势</option>
+          </select>
+          <label for="instruction">补充要求 <span>可选</span></label>
+          <textarea id="instruction" rows="3" placeholder="例如：突出海外 AI 音乐产品与增长实验"></textarea>
+          <button id="compose" class="primary wide">用千问生成候选文案</button>
+          <div class="inline-heading"><label for="draft">候选文案</label><span id="charCount">0 字</span></div>
+          <textarea id="draft" rows="9" placeholder="生成后仍可直接编辑"></textarea>
+          <div class="actions">
+            <button id="copy" class="quiet">复制</button>
+            <button id="fillDraft" class="primary">填入选中字段</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="panel-card">
+        <summary><span><strong>页面字段</strong><small id="pageInfo">打开招聘表单后刷新</small></span></summary>
+        <div class="details-body">
+          <div class="actions compact">
+            <button id="discover" class="quiet">刷新</button>
+            <button id="matchFields" class="quiet">规则匹配</button>
+            <button id="aiMatchFields" class="quiet">千问补充识别</button>
+          </div>
+          <p class="helper">千问只接收字段名称、类型和候选字段名，不发送网页中已有的填写值。</p>
+          <div id="fields" class="field-list"></div>
+        </div>
+      </details>
+
+      <details class="panel-card">
+        <summary><span><strong>简历主库</strong><small>更新后可在其他官网重复使用</small></span></summary>
+        <div class="details-body">
+          <div class="actions compact"><button id="reloadProfile" class="quiet">恢复磁盘版本</button></div>
+          <textarea id="profileEditor" rows="16" spellcheck="false"></textarea>
+          <button id="saveProfile" class="primary wide">保存主库新版本</button>
+          <p id="profileStatus" class="helper"></p>
+        </div>
+      </details>
+    </main>
+    <script src="sidepanel.js"></script>
+  </body>
+</html>
