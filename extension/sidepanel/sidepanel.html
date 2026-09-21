@@ -25,16 +25,15 @@
           <span id="planCount" class="status-pill">尚未扫描</span>
         </div>
 
-        <label for="variant">投递侧重</label>
-        <select id="variant">
-          <option value="ai_pm">AI 产品经理</option>
-          <option value="product_ops">产品运营 / 商业化</option>
-        </select>
+        <input id="variant" type="hidden" value="ai_pm" />
 
         <label for="autoInstruction">岗位 / JD 补充要求 <span>可选</span></label>
         <textarea id="autoInstruction" rows="3" placeholder="例如：突出海外 AI 产品、RAG 与增长实验"></textarea>
 
-        <button id="buildPlan" class="primary wide">扫描并生成填表计划</button>
+        <div class="scan-actions">
+          <button id="refreshPage" class="quiet">刷新当前页面</button>
+          <button id="buildPlan" class="primary">扫描并生成填表计划</button>
+        </div>
         <p id="planStatus" class="helper"></p>
         <div id="plan" class="plan-list"></div>
         <button id="executePlan" class="primary wide" disabled>确认并填入已勾选内容</button>

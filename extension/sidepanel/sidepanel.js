@@ -1,5 +1,5 @@
 const API = "http://127.0.0.1:8787";
-const state = { profile: null, selectedFieldId: null, fields: [], page: null, plan: [] };
+const state = { profile: null, selectedFieldId: null, fields: [], page: null, plan: [], activeTabKey: "" };
 const $ = (id) => document.getElementById(id);
 const connection = $("connection");
 
@@ -9,8 +9,25 @@ function setConnection(text, error = false) {
 }
 function countChars() { $("charCount").textContent = `${$("draft").value.length} 字`; }
 function activeTab() { return chrome.tabs.query({ active: true, lastFocusedWindow: true }).then(([tab]) => tab); }
-async function sendToPage(type, payload = {}) {
-  const tab = await activeTab();
+function keyForTab(tab) { return tab?.id ? `${tab.id}:${tab.url || ""}` : ""; }
+function originPattern(tab) {
+  try { const url = new URL(tab?.url || ""); return /^https?:$/.test(url.protocol) ? `${url.protocol}//${url.host}/*` : ""; }
+  catch { return ""; }
+}
+async function ensurePageAccess(tab, requestAccess = false) {
+  const origin = originPattern(tab);
+  if (!origin) return false;
+  if (await chrome.permissions.contains({ origins: [origin] })) return true;
+  return requestAccess ? chrome.permissions.request({ origins: [origin] }) : false;
+}
+function resetPageState(message = "正在读取当前页面…") {
+  state.selectedFieldId = null; state.fields = []; state.page = null; state.plan = [];
+  $("fields").replaceChildren(); $("plan").replaceChildren();
+  $("pageInfo").textContent = message; $("planStatus").textContent = "";
+  $("planCount").textContent = "尚未扫描"; $("executePlan").disabled = true;
+}
+async function sendToPage(type, payload = {}, targetTab = null) {
+  const tab = targetTab || await activeTab();
   if (!tab?.id) throw new Error("未找到当前页面");
   try { return await chrome.tabs.sendMessage(tab.id, { type, ...payload }); }
   catch (error) {
@@ -27,7 +44,8 @@ async function request(url, options = {}) {
 }
 function renderFields() {
   const holder = $("fields"); holder.replaceChildren();
-  $("pageInfo").textContent = state.fields.length ? `发现 ${state.fields.length} 个可填写字段；请选择一个字段后填入。` : "未发现字段。请确认当前页为招聘表单并已登录。";
+  const host = state.page?.host ? `${state.page.host} · ` : "";
+  $("pageInfo").textContent = state.fields.length ? `${host}发现 ${state.fields.length} 个可填写字段` : "未发现字段。请确认当前页为招聘表单并已登录。";
   state.fields.forEach((field) => {
     const button = document.createElement("button");
     button.className = `field ${field.id === state.selectedFieldId ? "selected" : ""}`;
@@ -42,9 +60,17 @@ function renderFields() {
     holder.append(button);
   });
 }
-async function discover() {
+async function discover({ requestAccess = false } = {}) {
   try {
-    const result = await sendToPage("RECRUITMENT_ANALYZE");
+    const tab = await activeTab();
+    if (!tab?.id) throw new Error("未找到当前页面");
+    const nextKey = keyForTab(tab);
+    if (state.activeTabKey !== nextKey) { state.activeTabKey = nextKey; resetPageState(); }
+    if (!await ensurePageAccess(tab, requestAccess)) {
+      $("pageInfo").textContent = "这是新的官网。点击“刷新当前页面”授权后即可自动识别；只对该网站生效。";
+      return;
+    }
+    const result = await sendToPage("RECRUITMENT_ANALYZE", {}, tab);
     state.page = result.page; state.fields = result.page?.fields || result.fields || []; renderFields();
   }
   catch (error) { $("pageInfo").textContent = `无法读取页面：${error.message}`; }
@@ -79,31 +105,39 @@ async function buildAutoPlan() {
   try {
     status.className = "muted";
     $("buildPlan").disabled = true; $("buildPlan").textContent = "正在扫描并补齐区块…";
-    let analyzed = await sendToPage("RECRUITMENT_ANALYZE");
+    const tab = await activeTab();
+    if (!tab?.id) throw new Error("未找到当前页面");
+    if (!await ensurePageAccess(tab, true)) throw new Error("未获得当前招聘网站的页面访问权限");
+    const planTabKey = keyForTab(tab);
+    if (state.activeTabKey !== planTabKey) { state.activeTabKey = planTabKey; resetPageState(); }
+    let analyzed = await sendToPage("RECRUITMENT_ANALYZE", {}, tab);
     state.page = analyzed.page;
     const alignment = await request("/api/align-form", { method: "POST", body: JSON.stringify({ fields: state.page.fields }) });
     const availableSections = new Set((state.page.repeaters || []).map((item) => item.section));
     const targets = Object.fromEntries(Object.entries(alignment.targets || {}).filter(([section, desired]) => availableSections.has(section) && desired > 0));
     if (Object.keys(targets).length) {
-      await sendToPage("RECRUITMENT_ENSURE_RECORDS", { targets });
-      analyzed = await sendToPage("RECRUITMENT_ANALYZE"); state.page = analyzed.page;
+      await sendToPage("RECRUITMENT_ENSURE_RECORDS", { targets }, tab);
+      analyzed = await sendToPage("RECRUITMENT_ANALYZE", {}, tab); state.page = analyzed.page;
     }
     $("buildPlan").textContent = "正在让千问识别字段…";
     const result = await request("/api/auto-plan", { method: "POST", body: JSON.stringify({ page: state.page, variant: $("variant").value, instruction: $("autoInstruction").value }) });
+    if (state.activeTabKey !== planTabKey) return;
     state.plan = result.plan || [];
     renderPlan();
     const confirms = state.plan.filter((item) => item.needsConfirmation).length;
     status.textContent = `已识别 ${state.page.fields.length} 个页面字段，生成 ${state.plan.length} 项建议${confirms ? `；其中 ${confirms} 项需要你确认` : ""}。`;
   } catch (error) { status.textContent = `生成计划失败：${error.message}`; status.className = "error"; }
-  finally { $("buildPlan").disabled = false; $("buildPlan").textContent = "① 扫描页面并生成填表计划"; }
+  finally { $("buildPlan").disabled = false; $("buildPlan").textContent = "扫描并生成填表计划"; }
 }
 
 async function executeAutoPlan() {
-  const items = state.plan.filter((item) => item.selected && String(item.value || "").trim()).map(({ fieldId, value }) => ({ fieldId, value }));
+  const items = state.plan.filter((item) => item.selected && String(item.value || "").trim()).map(({ fieldId, domId, label, key, type, section, recordIndex, value }) => ({ fieldId, domId, label, key, type, section, recordIndex, value }));
   if (!items.length) return alert("没有已勾选且有内容的项目。");
   try {
+    const tab = await activeTab();
+    if (keyForTab(tab) !== state.activeTabKey) throw new Error("当前标签页已切换，请先刷新或重新生成计划");
     $("planStatus").className = "muted";
-    const result = await sendToPage("RECRUITMENT_EXECUTE_PLAN", { items });
+    const result = await sendToPage("RECRUITMENT_EXECUTE_PLAN", { items }, tab);
     const failures = (result.results || []).filter((item) => !item.ok);
     $("planStatus").textContent = failures.length ? `已填入 ${items.length - failures.length} 项，${failures.length} 项因网页控件限制需要手动填写。网站尚未保存。` : `已填入 ${items.length} 项；请在网页中检查，网站尚未保存。`;
     await discover();
@@ -160,12 +194,14 @@ $("fillDraft").onclick = async () => {
   if (!state.selectedFieldId) return alert("请先在“页面字段”中选一个目标字段。");
   if (!$("draft").value.trim()) return alert("候选文案为空。");
   try {
-    const result = await sendToPage("RECRUITMENT_FILL", { id: state.selectedFieldId, value: $("draft").value });
+    const selected = state.fields.find((field) => field.id === state.selectedFieldId) || {};
+    const result = await sendToPage("RECRUITMENT_FILL", { id: state.selectedFieldId, field: selected, value: $("draft").value });
     if (!result?.ok) throw new Error(result?.error || "填写失败");
     await discover();
   } catch (error) { alert(`未填写：${error.message}`); }
 };
 $("discover").onclick = discover;
+$("refreshPage").onclick = async () => { state.activeTabKey = ""; resetPageState("正在刷新当前页面…"); await discover({ requestAccess: true }); };
 $("buildPlan").onclick = buildAutoPlan;
 $("executePlan").onclick = executeAutoPlan;
 $("rememberPage").onclick = rememberCurrentPage;
@@ -188,4 +224,15 @@ $("saveConfig").onclick = async () => {
     setConnection(`本地服务已连接 · ${result.model}`);
   } catch (error) { $("keyStatus").textContent = `保存失败：${error.message}`; $("keyStatus").className = "error"; }
 };
+
+let pageSyncTimer;
+function schedulePageSync(message = "已切换页面，正在重新识别…") {
+  clearTimeout(pageSyncTimer);
+  resetPageState(message);
+  pageSyncTimer = setTimeout(() => discover(), 250);
+}
+chrome.tabs.onActivated.addListener(() => schedulePageSync());
+chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
+  if (tab.active && (changeInfo.status === "complete" || changeInfo.url)) schedulePageSync("页面已更新，正在重新识别…");
+});
 Promise.all([loadProfile(), loadConfig()]).then(discover).catch((error) => setConnection(`本地服务不可用：${error.message}。请双击“启动助手.cmd”后刷新。`, true));

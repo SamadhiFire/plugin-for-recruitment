@@ -34,8 +34,7 @@ const rules = [
 ].join("\n");
 
 const variants = {
-  ai_pm: "目标：AI 产品经理。优先突出 Agent 工作流、RAG、Hybrid 检索、Rerank、Evals、Badcase、0-1 验证、用户旅程、产品机制和数据闭环。",
-  product_ops: "目标：产品运营/商业化。优先突出用户分层、转化漏斗、增长实验、A/B 测试、归因、定价、eCPM、GMV、留存与跨团队推进。"
+  ai_pm: "目标：AI 产品经理。根据岗位与字段语义，综合突出 Agent 工作流、RAG、Evals、Badcase、0-1 验证、用户旅程、产品机制、增长实验、商业化和数据闭环。"
 };
 
 const fieldDefinitions = [
@@ -111,6 +110,8 @@ function flattenCatalog(profile) {
     catalog.push({ path: `projects.${index}.name`, label: `${entry.name}项目名称`, aliases: ["项目名称", "项目名"] , value: entry.name });
     catalog.push({ path: `projects.${index}.description`, label: `${entry.name}项目描述`, aliases: ["项目描述", "项目介绍", "项目内容"], value: entry.description });
     catalog.push({ path: `projects.${index}.type`, label: `${entry.name}项目角色`, aliases: ["项目角色", "担任角色"], value: entry.type });
+    if (entry.start) catalog.push({ path: `projects.${index}.start`, label: `${entry.name}开始时间`, aliases: ["开始时间", "起始时间", "开始日期"], value: entry.start });
+    if (entry.end) catalog.push({ path: `projects.${index}.end`, label: `${entry.name}结束时间`, aliases: ["结束时间", "截止时间", "结束日期"], value: entry.end });
     if (entry.url) catalog.push({ path: `projects.${index}.url`, label: `${entry.name}项目链接`, aliases: ["项目链接", "项目地址"], value: entry.url });
   });
   return catalog.filter((item) => item.value != null);
@@ -232,7 +233,7 @@ function profilePathFor(field, alignment) {
     return educationMap[field.key] ? `education.${profileIndex}.${educationMap[field.key]}` : null;
   }
   if (["experience", "work"].includes(field.section)) return ({ company: "company", role: "role", description: "bullets", start: "start", end: "end" }[field.key]) ? `experience.${profileIndex}.${({ company: "company", role: "role", description: "bullets", start: "start", end: "end" })[field.key]}` : null;
-  if (field.section === "project") return ({ projectName: "name", projectRole: "type", role: "type", description: "description", link: "url" }[field.key]) ? `projects.${profileIndex}.${({ projectName: "name", projectRole: "type", role: "type", description: "description", link: "url" })[field.key]}` : null;
+  if (field.section === "project") return ({ projectName: "name", projectRole: "type", role: "type", description: "description", link: "url", start: "start", end: "end" }[field.key]) ? `projects.${profileIndex}.${({ projectName: "name", projectRole: "type", role: "type", description: "description", link: "url", start: "start", end: "end" })[field.key]}` : null;
   if (field.section === "works" && field.key === "link") return "basics.portfolio";
   return null;
 }
@@ -289,12 +290,22 @@ async function autoPlan(payload) {
   const alignment = buildAlignment(fields, profile);
   const plan = [];
   const unresolved = [];
+  const planItem = (field, details) => ({
+    fieldId: field.id,
+    domId: field.domId || "",
+    label: field.label || field.key,
+    key: field.key || "unknown",
+    type: field.type || "text",
+    section: field.section || "other",
+    recordIndex: Number.isInteger(field.recordIndex) ? field.recordIndex : null,
+    ...details
+  });
   for (const field of fields.filter((item) => !item.readOnly)) {
     const path = profilePathFor(field, alignment);
     const value = path ? getValue(profile, path) : null;
     if (path && value != null && String(value) !== "待确认") {
       const formatted = formattedValue(path, value, field);
-      if (!equivalentValue(formatted, field.value || "")) plan.push({ fieldId: field.id, label: field.label || field.key, section: field.section, recordIndex: field.recordIndex, path, value: formatted, confidence: "high", source: "resume", needsConfirmation: false, reason: "简历主库精确映射" });
+      if (!equivalentValue(formatted, field.value || "")) plan.push(planItem(field, { path, value: formatted, confidence: "high", source: "resume", needsConfirmation: false, reason: "简历主库精确映射" }));
       continue;
     }
     const isUnmatchedRepeatedRecord = ["education", "experience", "work", "project"].includes(field.section)
@@ -304,8 +315,8 @@ async function autoPlan(payload) {
     const memoryKey = normalized(`${field.section || "other"}:${field.label || field.key}`);
     const remembered = (memory.answers || []).find((entry) => entry.key === memoryKey);
     if (remembered && !String(field.value || "").trim()) {
-      plan.push({ fieldId: field.id, label: field.label || field.key, section: field.section, recordIndex: field.recordIndex, value: formattedValue("memory", remembered.value, field), confidence: "high", source: "memory", needsConfirmation: false, reason: "曾在其他表单中保存过" });
-    } else if (!String(field.value || "").trim() && (field.required || field.type === "textarea" || ["summary", "skills", "unknown"].includes(field.key))) {
+      plan.push(planItem(field, { value: formattedValue("memory", remembered.value, field), confidence: "high", source: "memory", needsConfirmation: false, reason: "曾在其他表单中保存过" }));
+    } else if (!String(field.value || "").trim() && !/搜索(职位|岗位|关键词)|验证码|短信码|密码|上传附件|选择文件/.test(String(field.label || ""))) {
       unresolved.push({ id: field.id, label: field.label, key: field.key, section: field.section, recordIndex: field.recordIndex, type: field.type, maxLength: field.maxLength, required: field.required });
     }
   }
@@ -319,6 +330,7 @@ async function autoPlan(payload) {
       "只有开放文本字段且可由简历事实合理组织时才生成 value；所有生成 value 必须 needsConfirmation=true。",
       "每个生成的 value 必须严格遵守该字段的 maxLength；适合长文本时用 1.、2.、3. 分点并在句末完整收束。",
       "涉及年龄、证件、地址、政治面貌、薪资等简历未提供的个人事实时，不得猜测，value 为空且 needsConfirmation=true。",
+      "即使字段是选填，只要能从候选路径可靠映射也应返回；导航栏搜索、验证码、上传控件等非简历字段不要生成内容。",
       "confidence 只能是 high、medium、low。不要输出 Markdown。",
       variants[payload.variant] || variants.ai_pm,
       rules
@@ -333,13 +345,13 @@ async function autoPlan(payload) {
       handled.add(item.fieldId);
       if (item.path && validPaths.has(item.path)) {
         const value = getValue(profile, item.path);
-        if (value != null) plan.push({ fieldId: item.fieldId, label: field.label || field.key, section: field.section, recordIndex: field.recordIndex, path: item.path, value: formattedValue(item.path, value, field), confidence: item.confidence || "medium", source: "qwen-map", needsConfirmation: false, reason: item.reason || "千问语义映射" });
+        if (value != null) plan.push(planItem(field, { path: item.path, value: formattedValue(item.path, value, field), confidence: item.confidence || "medium", source: "qwen-map", needsConfirmation: false, reason: item.reason || "千问语义映射" }));
       } else {
-        plan.push({ fieldId: item.fieldId, label: field.label || field.key, section: field.section, recordIndex: field.recordIndex, value: formattedValue("generated", item.value || "", field), confidence: item.confidence || "low", source: "qwen-generated", needsConfirmation: true, reason: item.reason || "简历无直接字段，需要确认" });
+        plan.push(planItem(field, { value: formattedValue("generated", item.value || "", field), confidence: item.confidence || "low", source: "qwen-generated", needsConfirmation: true, reason: item.reason || "简历无直接字段，需要确认" }));
       }
     }
     for (const field of unresolved.filter((item) => !handled.has(item.id))) {
-      plan.push({ fieldId: field.id, label: field.label || field.key, section: field.section, recordIndex: field.recordIndex, value: "", confidence: "low", source: "missing", needsConfirmation: true, reason: "简历与千问均未给出可靠答案，请补充并确认" });
+      plan.push(planItem(field, { value: "", confidence: "low", source: "missing", needsConfirmation: true, reason: "简历与千问均未给出可靠答案，请补充并确认" }));
     }
   }
   return { alignment, plan };

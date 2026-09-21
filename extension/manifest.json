@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "求职简历助手",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "description": "识别招聘表单、补齐重复经历、生成预览计划并一键填入；不会自动保存或提交。",
   "permissions": ["storage", "activeTab", "tabs", "sidePanel", "scripting"],
   "host_permissions": [
@@ -10,8 +10,10 @@
     "https://xiaomi.jobs.f.mioffice.cn/*",
     "https://hr-campus.vivo.com/*",
     "https://join.qq.com/*",
+    "https://campus.jd.com/*",
     "http://127.0.0.1:8787/*"
   ],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
   "background": { "service_worker": "background.js", "type": "module" },
   "side_panel": { "default_path": "sidepanel/sidepanel.html" },
   "action": { "default_title": "打开求职简历助手" },
@@ -22,7 +24,8 @@
         "https://jobs.bytedance.com/*",
         "https://xiaomi.jobs.f.mioffice.cn/*",
         "https://hr-campus.vivo.com/*",
-        "https://join.qq.com/*"
+        "https://join.qq.com/*",
+        "https://campus.jd.com/*"
       ],
       "js": ["content/content.js"],
       "run_at": "document_idle"

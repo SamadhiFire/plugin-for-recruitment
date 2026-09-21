@@ -88,8 +88,10 @@ button.primary:hover { background: #0068d1; }
 button.quiet { color: #0066cc; background: #f0f6fc; }
 button.quiet:hover { background: #e7f2fc; }
 .wide { width: 100%; margin-top: 10px; }
+.scan-actions { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.45fr); gap: 7px; margin-top: 10px; }
+.scan-actions button { width: 100%; }
 
-.helper { margin: 8px 0 0; color: #86868b; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.helper, .muted { margin: 8px 0 0; color: #86868b; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 .safe-note { margin: 10px 0 0; color: #7b6b38; font-size: 11px; line-height: 1.45; text-align: center; }
 .error { color: #c9342f !important; }
 .status-pill {
@@ -154,4 +156,5 @@ button.quiet:hover { background: #e7f2fc; }
   .details-body { padding-inline: 12px; }
   .panel-card > summary { padding-inline: 12px; }
   button { padding-inline: 9px; }
+  .scan-actions { grid-template-columns: 1fr; }
 }
