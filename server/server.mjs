@@ -52,8 +52,13 @@ const fieldDefinitions = [
   ["basics.interviewLocation", "意向面试地点", ["意向面试地点", "面试地点"]],
   ["basics.portfolio", "作品集", ["作品集", "个人主页", "个人网站", "portfolio"]],
   ["basics.github", "GitHub", ["github", "github 地址", "代码仓库"]],
-  ["basics.summary", "个人优势", ["个人优势", "自我评价", "个人总结", "个人简介"]],
-  ["skills", "专业技能", ["专业技能", "技能", "掌握技能", "技术技能"]]
+  ["basics.summary", "个人优势", ["个人优势", "个人总结", "个人简介", "自我介绍"]],
+  ["skills", "专业技能", ["专业技能", "技能", "掌握技能", "技术技能"]],
+  ["applicationAnswers.aiToolsModels", "常用AI工具与模型", ["请列出你常用的AI工具&模型", "请列出常用的AI工具和模型", "AI应用技能", "AI工具与模型", "AI工具&模型", "常用AI工具", "常用大模型", "人工智能工具", "大模型使用经验"]],
+  ["applicationAnswers.aiCollaborationProjects", "与AI协作完成的项目或任务", ["AI协作项目", "AI项目经历", "使用AI完成的项目", "与AI协作完成的任务", "AI实践项目"]],
+  ["applicationAnswers.personalStrengths", "个人特长", ["个人特长", "特长", "能力特长", "核心特长"]],
+  ["applicationAnswers.hobbies", "兴趣爱好", ["兴趣爱好", "兴趣与爱好", "个人爱好", "爱好"]],
+  ["applicationAnswers.selfEvaluation", "自我评价", ["自我评价", "个人评价", "综合评价", "自我鉴定"]]
 ];
 const siteAliases = {
   "careers.oppo.com": { "工作内容": ["experience.0.bullets", "experience.1.bullets", "experience.2.bullets"], "项目描述": ["projects.0.description", "projects.1.description", "projects.2.description"] },
@@ -72,7 +77,8 @@ function profileForModel(profile) {
     education: profile.education,
     experience: profile.experience,
     projects: profile.projects,
-    skills: profile.skills
+    skills: profile.skills,
+    applicationAnswers: profile.applicationAnswers
   };
 }
 function flattenCatalog(profile) {
@@ -139,7 +145,7 @@ function deterministicMatches(fields, profile, pageUrl) {
     candidates.sort((a, b) => b.score - a.score);
     const best = candidates[0];
     const ambiguous = !best || candidates.filter((item) => item.score === best.score).length > 1;
-    return best && !ambiguous ? { fieldId: field.id, path: best.path, label: best.label, value: best.value, confidence: best.score >= 100 ? "high" : "medium", source: "rules" } : { fieldId: field.id, confidence: "none", source: "rules" };
+    return best && !ambiguous ? { fieldId: field.id, path: best.path, label: best.label, value: formattedValue(best.path, best.value, field), confidence: best.score >= 100 ? "high" : "medium", source: "rules" } : { fieldId: field.id, confidence: "none", source: "rules" };
   });
 }
 
@@ -224,7 +230,7 @@ function buildAlignment(fields, profile) {
 }
 
 function profilePathFor(field, alignment) {
-  const basicMap = { name: "basics.name", gender: "basics.gender", birthDate: "basics.birthDate", phone: "basics.phoneNumber", phoneCountry: "basics.phoneCountry", phoneNumber: "basics.phoneNumber", email: "basics.email", idType: "basics.idType", idNumber: "basics.idNumber", nationality: "basics.nationality", hometown: "basics.hometownText", interviewLocation: "basics.interviewLocation", summary: "basics.summary", skills: "skills" };
+  const basicMap = { name: "basics.name", gender: "basics.gender", birthDate: "basics.birthDate", phone: "basics.phoneNumber", phoneCountry: "basics.phoneCountry", phoneNumber: "basics.phoneNumber", email: "basics.email", idType: "basics.idType", idNumber: "basics.idNumber", nationality: "basics.nationality", hometown: "basics.hometownText", interviewLocation: "basics.interviewLocation", summary: "basics.summary", skills: "skills", aiToolsModels: "applicationAnswers.aiToolsModels", aiCollaborationProjects: "applicationAnswers.aiCollaborationProjects", personalStrengths: "applicationAnswers.personalStrengths", hobbies: "applicationAnswers.hobbies", selfEvaluation: "applicationAnswers.selfEvaluation" };
   if (["basics", "summary", "skills", "other"].includes(field.section) && basicMap[field.key]) return basicMap[field.key];
   const profileIndex = alignment.mapping?.[field.section]?.[field.recordIndex];
   if (profileIndex == null) return null;
@@ -240,6 +246,10 @@ function profilePathFor(field, alignment) {
 
 function formattedValue(path, value, field) {
   let result = value;
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const variants = Object.values(value).filter((item) => typeof item === "string" && item.trim()).sort((left, right) => right.length - left.length);
+    result = field?.maxLength ? (variants.find((item) => item.length <= field.maxLength) || variants.at(-1) || "") : (variants[0] || "");
+  }
   if (Array.isArray(value)) result = value.map((item, index) => `${index + 1}. ${item}`).join("\n");
   if (/\.(start|end)$/.test(path)) result = String(result).replaceAll(".", "-");
   result = String(result ?? "");
@@ -425,7 +435,10 @@ async function aiSuggestMappings(payload) {
   try { mapped = JSON.parse(raw); } catch { throw new Error("千问未按 JSON 格式返回字段建议"); }
   const validPaths = new Set(catalog.map((item) => item.path));
   const validIds = new Set(fields.map((item) => item.id));
-  return (Array.isArray(mapped) ? mapped : []).filter((item) => validIds.has(item.fieldId) && validPaths.has(item.path) && ["high", "medium"].includes(item.confidence)).map((item) => ({ ...item, value: getValue(profile, item.path) }));
+  return (Array.isArray(mapped) ? mapped : []).filter((item) => validIds.has(item.fieldId) && validPaths.has(item.path) && ["high", "medium"].includes(item.confidence)).map((item) => {
+    const field = fields.find((candidate) => candidate.id === item.fieldId) || {};
+    return { ...item, value: formattedValue(item.path, getValue(profile, item.path), field) };
+  });
 }
 
 createServer(async (request, response) => {

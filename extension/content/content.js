@@ -3,7 +3,7 @@
   window.__recruitmentCopilotV2 = true;
 
   const FIELD_SELECTOR = "input:not([type=hidden]):not([type=file]):not([type=submit]):not([type=button]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [contenteditable=true], [role=textbox]:not(input):not(textarea)";
-  const SECTION_NAMES = ["个人信息", "基本信息", "基础信息", "个人资料", "教育经历", "教育背景", "学习经历", "实习经历", "工作经历", "工作经验", "工作/实习经历", "校园经历", "校园实践", "社团经历", "项目经历", "项目经验", "实践经历", "公司内部亲属关系", "英语能力", "其他外语能力", "计算机能力", "专业技能", "获奖情况", "荣誉奖励", "证书", "作品", "语言能力", "语言/证书/技能", "自我评价", "自我介绍", "个人优势", "其他技能/证书"];
+  const SECTION_NAMES = ["个人信息", "基本信息", "基础信息", "个人资料", "教育经历", "教育背景", "学习经历", "实习经历", "工作经历", "工作经验", "工作/实习经历", "校园经历", "校园实践", "社团经历", "项目经历", "项目经验", "实践经历", "AI应用技能", "AI能力", "AI工具与模型", "公司内部亲属关系", "英语能力", "其他外语能力", "计算机能力", "专业技能", "获奖情况", "荣誉奖励", "证书", "作品", "语言能力", "语言/证书/技能", "个人特长", "兴趣爱好", "自我评价", "自我介绍", "个人优势", "其他技能/证书"];
   let highlighted;
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const clean = (value = "") => String(value).replace(/\s+/g, " ").trim();
@@ -49,6 +49,8 @@
   }
 
   function sectionFromText(text, headings = null) {
+    if (/AI应用技能|AI能力|AI工具|AI协作/.test(text)) return "skills";
+    if (/个人特长|兴趣爱好/.test(text)) return "summary";
     if (/工作\/实习|实习/.test(text)) return "experience";
     if (/工作经历|工作经验/.test(text)) {
       const hasSeparateInternshipSection = (headings || headingItems()).some((item) => /实习经历|实习经验/.test(item.text));
@@ -105,6 +107,11 @@
     if (/nationality|国籍|国家地区/.test(source)) return "nationality";
     if (/籍贯|家乡|hometown/.test(source)) return "hometown";
     if (/意向面试地点|面试地点|面试城市/.test(source)) return "interviewLocation";
+    if (/常用.*ai.*工具|ai工具.*模型|ai应用技能|常用大模型|人工智能工具|大模型使用经验/i.test(source)) return "aiToolsModels";
+    if (/与ai协作|ai协作.*项目|ai协作.*任务|使用ai完成|ai实践项目/i.test(source)) return "aiCollaborationProjects";
+    if (/个人特长|能力特长|核心特长/.test(source)) return "personalStrengths";
+    if (/兴趣爱好|兴趣与爱好|个人爱好/.test(source)) return "hobbies";
+    if (/自我评价|个人评价|综合评价|自我鉴定/.test(source)) return "selfEvaluation";
     if (/学校所在地|院校所在地|目前就读地|就读城市/.test(source)) return "schoolLocation";
     if (/school|学校|院校|毕业院校/.test(source)) return "school";
     if (/所在院系|研究所|学院|院系|college|department/.test(source)) return "college";
@@ -363,6 +370,11 @@
     await dismissDatePicker();
     element.scrollIntoView({ block: "center", inline: "nearest" });
     await delay(100);
+    // HTMLElement.click() alone does not move focus like a real mouse click.
+    // Ant Design binds the shared popup to the focused picker, so explicitly
+    // focus the target row before opening it.
+    element.focus({ preventScroll: true });
+    element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, buttons: 1 }));
     element.click();
     await delay(120);
     const popupSelectors = [
@@ -372,7 +384,24 @@
       ".arco-picker-container:not(.arco-trigger-popup-hidden) input",
       ".semi-portal:not([style*='display: none']) input"
     ];
-    const editor = popupSelectors.flatMap((selector) => [...document.querySelectorAll(selector)]).filter((candidate) => visibleElement(candidate)).at(-1);
+    const findEditor = () => popupSelectors.flatMap((selector) => [...document.querySelectorAll(selector)]).filter((candidate) => visibleElement(candidate)).at(-1);
+    let editor = findEditor();
+    const sameDateText = (left, right) => {
+      const leftDate = normalizedDate(left, item.key);
+      const rightDate = normalizedDate(right, item.key);
+      return leftDate && rightDate ? leftDate === rightDate : norm(left) === norm(right);
+    };
+    // Confirm that the shared popup actually belongs to this row before
+    // typing. If it still displays the preceding row's value, close/reopen it.
+    for (let retry = 0; editor && !sameDateText(editor.value, freshFieldValue(item, element)) && retry < 2; retry += 1) {
+      await dismissDatePicker();
+      element.focus({ preventScroll: true });
+      element.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, button: 0, buttons: 1 }));
+      element.click();
+      await delay(180);
+      editor = findEditor();
+    }
+    if (editor && !sameDateText(editor.value, freshFieldValue(item, element))) throw new Error("日期弹层仍绑定在上一条记录，已停止写入以避免错位");
     if (editor) {
       editor.focus();
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
@@ -538,7 +567,10 @@
       try {
         await setValue(resolved.element, item.value, item);
         results.push({ fieldId: item.fieldId, resolvedFieldId: resolved.fieldId, relocated: resolved.relocated, ok: true });
-        await delay(120);
+        // Date pickers in some enterprise form stacks share transition state
+        // across repeated rows. Give that state time to settle before touching
+        // the next record; otherwise both rows can receive the next date.
+        await delay(["start", "end", "birthDate", "dateRange"].includes(item.key) ? 1100 : 120);
       }
       catch (error) { results.push({ fieldId: item.fieldId, ok: false, error: error.message }); }
     }
