@@ -11,7 +11,7 @@
       <div class="brand-mark"><img src="../assets/logo.svg" alt="" /></div>
       <div class="brand-copy">
         <h1>简历助手</h1>
-        <p id="connection">正在连接本地简历库…</p>
+        <p id="connection" role="status">连接中</p>
       </div>
     </header>
 
@@ -19,31 +19,41 @@
       <section class="hero-card">
         <div class="section-heading">
           <div>
-            <h2>一键填写当前页面</h2>
-            <p>识别字段、补齐经历，先预览再填入。</p>
+            <h2>填写简历</h2>
           </div>
-          <span id="planCount" class="status-pill">尚未扫描</span>
+          <button id="refreshPage" class="icon-button" disabled aria-label="重新读取当前页面" title="重新读取当前页面">↻</button>
         </div>
 
-        <input id="variant" type="hidden" value="ai_pm" />
+        <label for="profileDirection">简历方向</label>
+        <select id="profileDirection">
+          <option value="">请选择投递方向</option>
+        </select>
+        <p id="directionStatus" class="helper" hidden></p>
 
-        <label for="autoInstruction">岗位 / JD 补充要求 <span>可选</span></label>
-        <textarea id="autoInstruction" rows="3" placeholder="例如：突出海外 AI 产品、RAG 与增长实验"></textarea>
+        <details class="instruction-disclosure">
+          <summary>补充岗位要求 <span>可选</span></summary>
+          <label for="autoInstruction" class="sr-only">岗位要求</label>
+          <textarea id="autoInstruction" rows="3" placeholder="粘贴 JD，或说明想突出的经历"></textarea>
+        </details>
 
         <div class="scan-actions">
-          <button id="refreshPage" class="quiet">刷新当前页面</button>
-          <button id="buildPlan" class="primary">扫描并生成填表计划</button>
+          <button id="buildPlan" class="primary" disabled>分析当前页面</button>
         </div>
-        <p id="planStatus" class="helper"></p>
+        <p id="planStatus" class="helper" role="status" aria-live="polite"></p>
+        <span id="planCount" class="status-pill" hidden></span>
+        <details id="planDiagnostics" class="diagnostics" hidden>
+          <summary>分析详情</summary>
+          <p id="planDiagnosticsText"></p>
+        </details>
         <div id="plan" class="plan-list"></div>
-        <button id="executePlan" class="primary wide" disabled>确认并填入已勾选内容</button>
-        <button id="rememberPage" class="quiet wide">记住当前页的补充答案</button>
-        <p class="safe-note">仅填写，不会点击招聘网站的保存、下一步或提交。</p>
+        <p class="safe-note">仅填写，由你保存与提交</p>
       </section>
 
+      <details class="tools-panel">
+        <summary>工具与设置</summary>
       <details class="panel-card">
         <summary>
-          <span><strong>千问与本地服务</strong><small>密钥和模型设置</small></span>
+          <span><strong>模型设置</strong></span>
           <span id="keyStatus" class="status-pill"></span>
         </summary>
         <div class="details-body">
@@ -57,7 +67,7 @@
       </details>
 
       <details class="panel-card">
-        <summary><span><strong>单字段文案</strong><small>生成、编辑并填入当前字段</small></span></summary>
+        <summary><span><strong>文案编辑</strong></span></summary>
         <div class="details-body">
           <label for="task">内容类型</label>
           <select id="task">
@@ -68,7 +78,7 @@
           </select>
           <label for="instruction">补充要求 <span>可选</span></label>
           <textarea id="instruction" rows="3" placeholder="例如：突出海外 AI 音乐产品与增长实验"></textarea>
-          <button id="compose" class="primary wide">用千问生成候选文案</button>
+          <button id="compose" class="primary wide" disabled>用千问生成候选文案</button>
           <div class="inline-heading"><label for="draft">候选文案</label><span id="charCount">0 字</span></div>
           <textarea id="draft" rows="9" placeholder="生成后仍可直接编辑"></textarea>
           <div class="actions">
@@ -79,28 +89,34 @@
       </details>
 
       <details class="panel-card">
-        <summary><span><strong>页面字段</strong><small id="pageInfo">打开招聘表单后刷新</small></span></summary>
+        <summary><span><strong>页面字段</strong></span></summary>
         <div class="details-body">
+          <p id="pageInfo" class="helper">打开招聘表单后读取</p>
           <div class="actions compact">
-            <button id="discover" class="quiet">刷新</button>
-            <button id="matchFields" class="quiet">规则匹配</button>
-            <button id="aiMatchFields" class="quiet">千问补充识别</button>
+            <button id="discover" class="quiet">重新自动分析</button>
           </div>
-          <p class="helper">千问只接收字段名称、类型和候选字段名，不发送网页中已有的填写值。</p>
+          <p class="helper">字段理解和复核已自动完成。分析会使用字段上下文、经历名称和简历事实；网页中的手机号、证件号码等基础字段值不发送给模型。</p>
           <div id="fields" class="field-list"></div>
         </div>
       </details>
 
       <details class="panel-card">
-        <summary><span><strong>简历主库</strong><small>更新后可在其他官网重复使用</small></span></summary>
+        <summary><span><strong>简历资料</strong></span></summary>
         <div class="details-body">
-          <div class="actions compact"><button id="reloadProfile" class="quiet">恢复磁盘版本</button></div>
-          <textarea id="profileEditor" rows="16" spellcheck="false"></textarea>
-          <button id="saveProfile" class="primary wide">保存主库新版本</button>
+          <p class="helper">显示基础库与当前方向合并后的完整内容；保存时只写入当前方向差异，不影响其他方向。</p>
+          <div class="actions compact"><button id="reloadProfile" class="quiet" disabled>恢复磁盘版本</button></div>
+          <textarea id="profileEditor" rows="16" spellcheck="false" disabled placeholder="请先选择简历方向"></textarea>
+          <button id="saveProfile" class="primary wide" disabled>保存当前方向新版本</button>
           <p id="profileStatus" class="helper"></p>
         </div>
       </details>
+      <button id="rememberPage" class="text-button">记住本页补充内容</button>
+      </details>
     </main>
+    <footer id="fillBar" class="fill-bar" hidden>
+      <span id="selectionCount"></span>
+      <button id="executePlan" class="primary" disabled>确认填入</button>
+    </footer>
     <script src="sidepanel.js"></script>
   </body>
 </html>

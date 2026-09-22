@@ -1,8 +1,8 @@
 (() => {
-  if (window.__recruitmentCopilotV2) return;
-  window.__recruitmentCopilotV2 = true;
+  if (window.__recruitmentCopilotV080) return;
+  window.__recruitmentCopilotV080 = true;
 
-  const FIELD_SELECTOR = "input:not([type=hidden]):not([type=file]):not([type=submit]):not([type=button]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [contenteditable=true], [role=textbox]:not(input):not(textarea)";
+  const FIELD_SELECTOR = "input:not([type=hidden]):not([type=file]):not([type=submit]):not([type=button]):not([type=reset]):not([type=image]):not([type=password]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [contenteditable=true], [role=textbox]:not(input):not(textarea), [role=combobox]:not(input):not(select)";
   const SECTION_NAMES = ["个人信息", "基本信息", "基础信息", "个人资料", "教育经历", "教育背景", "学习经历", "实习经历", "工作经历", "工作经验", "工作/实习经历", "校园经历", "校园实践", "社团经历", "项目经历", "项目经验", "实践经历", "AI应用技能", "AI能力", "AI工具与模型", "公司内部亲属关系", "英语能力", "其他外语能力", "计算机能力", "专业技能", "获奖情况", "荣誉奖励", "证书", "作品", "语言能力", "语言/证书/技能", "个人特长", "兴趣爱好", "自我评价", "自我介绍", "个人优势", "其他技能/证书"];
   let highlighted;
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -25,6 +25,14 @@
     const label = id && document.querySelector(`label[for="${CSS.escape(id)}"]`);
     const labelled = element.getAttribute("aria-labelledby")?.split(/\s+/).map((key) => document.getElementById(key)?.textContent || "").join(" ");
     if (label?.textContent || labelled) return clean(label?.textContent || labelled);
+    const ariaLabel = element.getAttribute("aria-label");
+    if (ariaLabel) return clean(ariaLabel);
+    const wrappedLabel = element.closest("label");
+    if (wrappedLabel && !["radio", "checkbox"].includes(element.type)) {
+      const copy = wrappedLabel.cloneNode(true);
+      copy.querySelectorAll("input,select,textarea,[role=combobox]").forEach((node) => node.remove());
+      if (clean(copy.textContent)) return clean(copy.textContent);
+    }
     const formilyLabel = element.closest(".ud-formily-item")?.querySelector(".ud-formily-item-label,.ud-formily-item-label-content");
     if (formilyLabel?.textContent) return clean(formilyLabel.textContent);
     let cursor = element;
@@ -44,6 +52,7 @@
 
   function headingItems() {
     return [...document.querySelectorAll("h1,h2,h3,h4,h5,h6,legend,dt,p,div,[role=heading],.module-title,.applyFormModuleWrapper-title,[class*=title],[class*=Title]")]
+      .filter((node) => !node.querySelector(FIELD_SELECTOR))
       .map((node) => ({ node, text: clean(node.textContent) }))
       .filter((item) => item.text.length <= 60 && SECTION_NAMES.some((name) => item.text === name || item.text.includes(name)));
   }
@@ -64,13 +73,13 @@
     if (/计算机能力|专业技能|证书/.test(text)) return "skills";
     if (/亲属|获奖|荣誉/.test(text)) return "other";
     if (/个人信息|个人资料|基本|基础/.test(text)) return "basics";
-    if (/自我评价|自我介绍|个人优势/.test(text)) return "summary";
+    if (/自我评价|自我介绍|个人简介|个人优势|核心竞争力|AIGC.*产品经理/.test(text)) return "summary";
     if (/技能/.test(text)) return "skills";
     return "other";
   }
 
   function nearestSection(element, headings = headingItems()) {
-    const parsed = parseStructuredId(element.id);
+    const parsed = parseStructuredId(element.id || element.name);
     if (parsed.section) return parsed.section;
     let match = "";
     for (const item of headings) if (item.node.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING) match = item.text;
@@ -96,30 +105,36 @@
     if (element.type === "checkbox" && (/至今|目前|在职/.test(optionText(element)) ||
       (location.hostname.includes("vivo.com") && /结束时间/.test(label)))) return "current";
     if (/导师|advisor|supervisor/.test(source)) return "advisor";
-    if (/firstname|fullname|姓名|^name$/.test(source) && !/学校|项目/.test(source) || element.id === "name") return "name";
+    // Repeated enterprise forms frequently reuse generic ids such as `name`
+    // for school/company/project names. Prefer the visible field label over
+    // that generic id so an education identity cannot become applicant name.
+    if (/学校所在地|院校所在地|目前就读地|就读城市/.test(source)) return "schoolLocation";
+    if (/school|学校|院校|毕业院校/.test(source)) return "school";
+    if (/所在院系|研究所|学院|院系|college|department/.test(source)) return "college";
+    if (((/firstname|fullname|姓名|^name$/.test(source)) || element.id === "name") && !/学校|院校|项目|公司|单位|学院|院系/.test(source)) return "name";
     if (/国家区号|手机区号|电话区号|countrycode/.test(source)) return "phoneCountry";
     if (/mobile|phone|手机|联系电话|联系方式/.test(source)) return /^\d{6,}$/.test(String(element.value || "").replace(/\D/g, "")) ? "phoneNumber" : "phone";
     if (/email|邮箱/.test(source)) return "email";
     if (/gender|性别/.test(source)) return "gender";
     if (/birth|出生/.test(source)) return "birthDate";
-    if (/\d{15,}/.test(String(element.value || "")) || /idcard|证件号码|身份证号码/.test(source)) return "idNumber";
+    if (/idcard|证件号码|身份证号码/.test(source)) return "idNumber";
     if (/证件类型|个人证件|idtype|identificationtype|identification/.test(source)) return "idType";
     if (/nationality|国籍|国家地区/.test(source)) return "nationality";
     if (/籍贯|家乡|hometown/.test(source)) return "hometown";
     if (/意向面试地点|面试地点|面试城市/.test(source)) return "interviewLocation";
     if (/常用.*ai.*工具|ai工具.*模型|ai应用技能|常用大模型|人工智能工具|大模型使用经验/i.test(source)) return "aiToolsModels";
     if (/与ai协作|ai协作.*项目|ai协作.*任务|使用ai完成|ai实践项目/i.test(source)) return "aiCollaborationProjects";
+    if (/为什么.*aigc.*产品经理|为什么.*应聘.*aigc|选择.*aigc.*原因|aigc.*岗位动机/i.test(source)) return "whyAigcProductManager";
+    if (/个人优势|核心竞争力|岗位胜任力|为什么选择你/.test(source)) return "coreStrengths";
+    if (/自我介绍|个人简介|请介绍一下自己/.test(source)) return "selfIntroduction";
     if (/个人特长|能力特长|核心特长/.test(source)) return "personalStrengths";
     if (/兴趣爱好|兴趣与爱好|个人爱好/.test(source)) return "hobbies";
     if (/自我评价|个人评价|综合评价|自我鉴定/.test(source)) return "selfEvaluation";
-    if (/学校所在地|院校所在地|目前就读地|就读城市/.test(source)) return "schoolLocation";
-    if (/school|学校|院校|毕业院校/.test(source)) return "school";
-    if (/所在院系|研究所|学院|院系|college|department/.test(source)) return "college";
     if (/专业类别|专业大类/.test(source)) return "majorCategory";
     if (/fieldofstudy|major|专业/.test(source)) return "major";
-    if (/educationtype|学历类型|受教育类型|培养方式/.test(source)) return "educationType";
+    if (/educationtype|学历类型|受教育类型|培养方式|学习形式/.test(source)) return "educationType";
     if (/是否最高学历/.test(source)) return "isHighestDegree";
-    if (/degree|学历/.test(source) && !/类型/.test(source)) return "degree";
+    if (/degree|学历|学位/.test(source) && !/类型/.test(source)) return "degree";
     if (/联合办学|jointprogram/.test(source)) return "jointProgram";
     if (/交流学习|exchange/.test(source)) return "exchange";
     if (/gpa|cgpa|绩点/.test(source) && !/满绩/.test(source)) return "gpa";
@@ -142,19 +157,18 @@
 
   function fieldValue(element) {
     if (element.type === "radio") {
-      const group = element.name ? [...document.querySelectorAll(`input[type=radio][name="${CSS.escape(element.name)}"]`)] :
-        [...(element.closest("[class*=fieldItem],.form-item,.ud-formily-item") || element.parentElement).querySelectorAll("input[type=radio]")];
+      const group = radioGroup(element);
       const checked = group.find((item) => item.checked);
       return checked ? optionText(checked) : "";
     }
     if (element.type === "checkbox") return element.checked ? (optionText(element) || "是") : "否";
+    if (element.tagName === "SELECT") return element.value ? element.selectedOptions[0]?.textContent?.trim() || "" : "";
     const selected = customSelectedText(element);
     if (selected) return selected;
     return element.value ?? element.textContent ?? "";
   }
 
   function recordCardFor(element) {
-    if (location.hostname.includes("campus.jd.com")) return element.closest("[class*=formGroupItem]");
     if (location.hostname.includes("join.qq.com")) return element.closest(".info_list");
     if (location.hostname.includes("vivo.com")) {
       const form = element.closest(".ux-standard-form");
@@ -162,7 +176,7 @@
     }
     const known = element.closest([
       ".register-form-group-wrapper", "[class*=form-array-card-content]", "[class*=array-card-content]", ".form-part",
-      "[data-record-index]", "[data-item-index]", "[class*=formGroupItem]", "[class*=educationItem]",
+      "[data-record-index]", "[data-item-index]", "[class*=educationItem]",
       "[class*=experienceItem]", "[class*=projectItem]", "[class*=recordItem]", "[class*=resumeItem]"
     ].join(","));
     if (known) return known;
@@ -183,6 +197,35 @@
     return null;
   }
 
+  function assignRecordIndexes(drafts) {
+    const repeatedSections = new Set(["education", "experience", "work", "project", "works", "language"]);
+    for (const section of repeatedSections) {
+      const sectionDrafts = drafts.filter((draft) => draft.section === section && !Number.isInteger(draft.recordIndex));
+      if (!sectionDrafts.length) continue;
+      const groups = new Map();
+      for (const draft of sectionDrafts) {
+        if (!draft._recordCard) continue;
+        if (!groups.has(draft._recordCard)) groups.set(draft._recordCard, []);
+        groups.get(draft._recordCard).push(draft);
+      }
+      const validCards = [...groups.entries()]
+        .filter(([, members]) => members.length >= 2 && new Set(members.map((member) => member.key)).size >= 2)
+        .sort((left, right) => Math.min(...left[1].map((item) => item._order)) - Math.min(...right[1].map((item) => item._order)));
+      const cardIndexes = new Map(validCards.map(([card], index) => [card, index]));
+      const occurrences = new Map();
+      for (const draft of sectionDrafts.sort((left, right) => left._order - right._order)) {
+        if (cardIndexes.has(draft._recordCard)) {
+          draft.recordIndex = cardIndexes.get(draft._recordCard);
+          continue;
+        }
+        const index = occurrences.get(draft.key) || 0;
+        draft.recordIndex = index;
+        occurrences.set(draft.key, index + 1);
+      }
+    }
+    return drafts;
+  }
+
   function customSelectRoot(element) {
     return element.closest(".atsx-select-selection,.ant-select,.ant-cascader-picker,.semi-select,.el-select,.arco-select,.arco-select-view,.ud__select,[class*=select-selector],[role=combobox]");
   }
@@ -201,38 +244,47 @@
     return clean(associated?.textContent || wrapped?.textContent || element.getAttribute("aria-label") || nearby?.textContent || element.value || "");
   }
 
+  function radioGroup(element) {
+    const scope = element.name ? (element.form || document) :
+      (element.closest('[role=radiogroup],fieldset,[class*=fieldItem],.form-item,.ud-formily-item') || element.parentElement);
+    return [...scope.querySelectorAll('input[type=radio]')].filter((candidate) => candidate.name === element.name && candidate.form === element.form);
+  }
+
+  function discoverable(element) {
+    if (element.matches(":disabled") || element.closest('[hidden],[inert],[aria-hidden=true],[aria-disabled=true],.resumeEditForm-hiddenField,.phoenix-unmodeled-layer')) return false;
+    for (let parent = element; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") return false;
+    }
+    if (visibleElement(element)) return true;
+    // Styled radio/checkbox inputs may be zero-sized but have a visible label.
+    return ["radio", "checkbox"].includes(element.type) && visibleElement(element.closest("label") || element.parentElement);
+  }
+
   function discover() {
     const seenRadioGroups = new Set();
     const headings = headingItems();
     const elements = [...document.querySelectorAll(FIELD_SELECTOR)].filter((element) => {
-      if (element.closest(".resumeEditForm-hiddenField,[aria-hidden=true]")) return false;
-      if (element.closest(".phoenix-unmodeled-layer")) return false;
+      if (!discoverable(element)) return false;
+      if (/验证码|短信码|密码|captcha|verification.?code|one.?time.?code/i.test(`${explicitLabel(element)} ${element.name} ${element.autocomplete}`)) return false;
+      if (element.getAttribute("role") === "combobox" && element.querySelector("input,select")) return false;
+      if (element.parentElement?.closest('[contenteditable=true]')) return false;
       if (element.type === "search" && !element.id && !element.getAttribute("aria-label")) return false;
       if (element.type === "radio") {
-        const radioKey = element.name || element.closest("[class*=fieldItem],.form-item,.ud-formily-item");
+        const radioKey = radioGroup(element)[0];
         if (seenRadioGroups.has(radioKey)) return false;
         seenRadioGroups.add(radioKey);
       }
-      const rect = element.getBoundingClientRect();
-      return rect.width > 0 || rect.height > 0 || Boolean(element.id) || ["radio", "checkbox"].includes(element.type);
+      return true;
     });
-    const recordCards = new Map();
-    const fields = elements.map((element, order) => {
+    const drafts = elements.map((element, order) => {
       element.dataset.recruitmentId ||= `recruitment-${Date.now()}-${order}`;
-      const parsed = parseStructuredId(element.id);
+      const parsed = parseStructuredId(element.id || element.name);
       const label = explicitLabel(element);
       const section = parsed.section || nearestSection(element, headings);
       const key = semanticKey(element, label, parsed);
-      let recordIndex = Number.isInteger(parsed.recordIndex) ? parsed.recordIndex : null;
-      if (recordIndex == null && ["education", "experience", "work", "project", "works", "language"].includes(section)) {
-        const card = recordCardFor(element);
-        if (card) {
-          if (!recordCards.has(section)) recordCards.set(section, []);
-          const cards = recordCards.get(section);
-          if (!cards.includes(card)) cards.push(card);
-          recordIndex = cards.indexOf(card);
-        }
-      }
+      const recordIndex = Number.isInteger(parsed.recordIndex) ? parsed.recordIndex : null;
+      const customRoot = customSelectRoot(element);
       return {
         id: element.dataset.recruitmentId,
         domId: element.id || "",
@@ -242,19 +294,25 @@
         section,
         recordIndex,
         key,
-        required: element.required || /\*/.test(label),
+        required: element.required || element.getAttribute("aria-required") === "true" || /[*＊]/.test(label),
         maxLength: element.maxLength > 0 ? element.maxLength : null,
-        readOnly: element.disabled || (element.readOnly && !["start", "end", "birthDate", "dateRange"].includes(key)) || Boolean(element.closest(".ud__select__selector-readOnly,[aria-readonly=true]"))
+        options: element.tagName === "SELECT" ? [...element.options].filter((option) => !option.disabled).map((option) => clean(option.textContent)) : element.type === "radio" ? radioGroup(element).map(optionText) : [],
+        context: {
+          placeholder: element.getAttribute("placeholder") || "",
+          name: element.name || "",
+          ariaLabel: element.getAttribute("aria-label") || "",
+          description: clean((element.getAttribute("aria-describedby") || "").split(/\s+/).map((id) => document.getElementById(id)?.textContent || "").join(" ")).slice(0, 300),
+          sectionHeading: headings.filter((item) => item.node.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING).at(-1)?.text || "",
+          recordSource: recordIndex != null ? "structured" : recordCardFor(element) ? "container" : "occurrence"
+        },
+        readOnly: element.disabled || (element.readOnly && !customRoot && !["start", "end", "birthDate", "dateRange"].includes(key)) || Boolean(element.closest(".ud__select__selector-readOnly,[aria-readonly=true]")),
+        control: customRoot ? "custom-select" : (element.type === "radio" ? "radio" : (element.type === "checkbox" ? "checkbox" : element.tagName.toLowerCase())),
+        _recordCard: recordIndex == null ? recordCardFor(element) : null,
+        _order: order
       };
     });
-    const occurrence = new Map();
-    for (const field of fields) {
-      const compound = `${field.section}:${field.key}`;
-      const index = occurrence.get(compound) || 0;
-      if (field.recordIndex == null && ["education", "experience", "work", "project", "works", "language"].includes(field.section)) field.recordIndex = field.key === "dateRange" ? index : index;
-      occurrence.set(compound, index + 1);
-    }
-    return fields;
+    assignRecordIndexes(drafts);
+    return drafts.map(({ _recordCard, _order, ...field }) => field);
   }
 
   function sectionForButton(button, headings = headingItems()) {
@@ -274,12 +332,21 @@
     const repeaters = [];
     for (const candidate of candidates) {
       const button = candidate.closest("button,[role=button],a") || candidate;
+      if (!safeAddButton(button)) continue;
       const section = /学历|教育经历|实习经历|工作经历|工作经验|项目经历|项目经验/.test(clean(button.textContent)) ? (/学历/.test(clean(button.textContent)) ? "education" : sectionFromText(clean(button.textContent), headings)) : sectionForButton(button, headings);
       if (section === "other" || repeaters.some((item) => item.section === section)) continue;
       button.dataset.recruitmentAddId ||= `recruitment-add-${repeaters.length}-${Date.now()}`;
       repeaters.push({ id: button.dataset.recruitmentAddId, section, currentCount: counts[section] || 0, label: clean(button.textContent) || "添加" });
     }
     return repeaters;
+  }
+
+  function safeAddButton(button) {
+    if (!discoverable(button)) return false;
+    // A button without type defaults to submit when placed inside a form.
+    if (button.tagName === "BUTTON" && button.form && button.type !== "button") return false;
+    if (button.tagName === "A" && button.getAttribute("href") && button.getAttribute("href") !== "#") return false;
+    return !/保存|提交|下一步|申请|完成/.test(clean(button.textContent));
   }
 
   function nativeSetter(element, value) {
@@ -311,6 +378,19 @@
     return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
   }
 
+  function isMonthControl(element) {
+    // These controls accept year/month even when the resume includes a day.
+    // Do not infer month precision merely from the value currently displayed.
+    return element?.type === "month" || Boolean(element?.closest(
+      ".throne-biz-date-range-picker-wrapper,.el-date-editor--month,.el-date-editor--monthrange"
+    ));
+  }
+
+  function dateAtControlPrecision(value, key, element) {
+    const date = normalizedDate(value, key);
+    return date && isMonthControl(element) ? `${date.slice(0, 7)}-01` : date;
+  }
+
   function fieldMatchesPlanItem(field, item, strictKey = true) {
     if (!field) return false;
     if (item.section && field.section !== item.section) return false;
@@ -321,8 +401,10 @@
   }
 
   function freshFieldValue(item, fallbackElement) {
-    const field = discover().find((candidate) => fieldMatchesPlanItem(candidate, item, true));
-    return field ? field.value : fieldValue(fallbackElement);
+    if (fallbackElement?.isConnected) return fieldValue(fallbackElement);
+    const candidates = discover().filter((candidate) => fieldMatchesPlanItem(candidate, item, true));
+    const field = candidates.find((candidate) => candidate.id === item.fieldId) || (candidates.length === 1 ? candidates[0] : null);
+    return field ? field.value : "";
   }
 
   async function dismissDatePicker() {
@@ -331,14 +413,17 @@
       ".ant-picker-dropdown",
       ".el-picker-panel",
       ".arco-picker-container",
-      ".semi-portal"
+      ".semi-portal",
+      ".throne-biz-date-range-picker-panel",
+      ".ud__dropdown .ud__picker-date-panel"
     ].join(","))];
     const visibleEditors = [...document.querySelectorAll([
       ".ant-calendar-picker-container .ant-calendar-input",
       ".ant-picker-dropdown input",
       ".el-picker-panel input",
       ".arco-picker-container input",
-      ".semi-portal input"
+      ".semi-portal input",
+      ".throne-biz-date-range-picker-panel input"
     ].join(","))].filter((candidate) => visibleElement(candidate));
     if (visibleEditors.length || pickerContainers.length) {
       // Clicking outside commits the value currently shown in the picker and
@@ -351,19 +436,58 @@
     }
   }
 
-  function matchingDateCell(date) {
+  function matchingDateCell(date, monthOnly = false, root = document) {
     const titles = [
       `${Number(date.slice(0, 4))}年${Number(date.slice(5, 7))}月${Number(date.slice(8, 10))}日`,
+      `${Number(date.slice(0, 4))}年${Number(date.slice(5, 7))}月`,
+      `${date.slice(0, 4)}-${date.slice(5, 7)}`,
       date
     ];
-    return [...document.querySelectorAll("[role=gridcell][title],td[title]")]
-      .find((candidate) => visibleElement(candidate) && titles.includes(candidate.getAttribute("title")) && candidate.getAttribute("aria-disabled") !== "true");
+    const titled = [...root.querySelectorAll("[role=gridcell][title],td[title],[role=button][title]")]
+      .find((candidate) => visibleElement(candidate) && titles.includes(candidate.getAttribute("title"))
+        && (!monthOnly || !/日$/.test(candidate.getAttribute("title") || "")) && candidate.getAttribute("aria-disabled") !== "true");
+    if (titled) return titled;
+    if (!monthOnly) return null;
+    const monthText = `${date.slice(5, 7)}月`;
+    return [...root.querySelectorAll([
+      ".ud__picker-month-panel-cell",
+      ".ant-picker-month-panel .ant-picker-cell",
+      ".arco-picker-cell",
+      ".el-month-table td",
+      ".semi-datepicker-month-grid-month"
+    ].join(","))].find((candidate) => visibleElement(candidate)
+      && clean(candidate.textContent) === monthText
+      && candidate.getAttribute("aria-disabled") !== "true"
+      && !/(?:^|\s)(?:disabled|.*-disabled)(?:\s|$)/i.test(String(candidate.className || "")));
+  }
+
+  function visibleUniverseMonthPanel() {
+    return [...document.querySelectorAll(".throne-biz-date-range-picker-panel")].filter((candidate) => visibleElement(candidate)).at(-1) || null;
+  }
+
+  async function alignUniversePickerYear(panel, targetYear) {
+    if (!panel) return;
+    for (let guard = 0; guard < 20; guard += 1) {
+      const header = panel.querySelector(".ud__picker-panel-header-btn");
+      const currentYear = Number((header?.textContent || "").match(/\d{4}/)?.[0]);
+      if (!Number.isFinite(currentYear)) throw new Error("无法读取字节月份控件的当前年份");
+      if (currentYear === targetYear) return;
+      const buttons = [...panel.querySelectorAll(".ud__picker-panel-header-icon")].filter((button) => visibleElement(button) && !button.disabled);
+      const button = buttons.find((candidate) => candidate.querySelector(`svg[data-icon="${currentYear > targetYear ? "LeftBoldOutlined" : "RightBoldOutlined"}"]`))
+        || buttons[currentYear > targetYear ? buttons.length - 2 : buttons.length - 1];
+      if (!button) throw new Error("无法操作字节月份控件的年份导航");
+      button.click();
+      await delay(100);
+    }
+    throw new Error("字节月份控件的目标年份超出自动导航范围");
   }
 
   async function setDatePickerValue(element, value, item = {}) {
-    const date = normalizedDate(value, item.key);
+    const date = dateAtControlPrecision(value, item.key, element);
     if (!date) throw new Error(`日期格式无效：“${value}”`);
-    if (norm(freshFieldValue(item, element)) === norm(date)) { await dismissDatePicker(); return; }
+    const monthOnly = isMonthControl(element) || !/^\s*\d{4}[./-]\d{1,2}[./-]\d{1,2}\s*$/.test(String(value));
+    const editorText = monthOnly ? date.slice(0, 7) : date;
+    if (normalizedDate(freshFieldValue(item, element), item.key) === date) { await dismissDatePicker(); return; }
 
     // Some Ant Design versions keep the previous picker mounted and route
     // subsequent keystrokes to it. Always close any prior popup first.
@@ -405,57 +529,84 @@
     if (editor) {
       editor.focus();
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-      setter ? setter.call(editor, date) : (editor.value = date);
-      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: date }));
+      setter ? setter.call(editor, editorText) : (editor.value = editorText);
+      editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: editorText }));
       editor.dispatchEvent(new Event("change", { bubbles: true }));
-      for (const type of ["keydown", "keypress", "keyup"]) editor.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
       await delay(180);
       // Text entry changes the calendar view, but some Ant Design builds keep
       // shared popup state alive. Clicking the exact day commits through the
       // active picker's own onSelect handler and closes the correct record.
-      const exactCell = matchingDateCell(date);
+      const exactCell = matchingDateCell(date, monthOnly);
       if (exactCell) {
         (exactCell.querySelector(".ant-calendar-date,.ant-picker-cell-inner") || exactCell).click();
         await delay(650);
       }
-      if (norm(freshFieldValue(item, element)) === norm(date)) { await dismissDatePicker(); return; }
+      if (normalizedDate(freshFieldValue(item, element), item.key) === date) { await dismissDatePicker(); return; }
+      // Searchable enterprise date widgets often commit typed month values
+      // only through the popup editor's own Enter handler. The surrounding
+      // mutation lock captures submit events, so this cannot submit the form.
+      for (const type of ["keydown", "keypress", "keyup"]) editor.dispatchEvent(new KeyboardEvent(type, {
+        key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true
+      }));
+      await delay(350);
+      if (normalizedDate(freshFieldValue(item, element), item.key) === date) { await dismissDatePicker(); return; }
     }
 
-    const cell = matchingDateCell(date);
+    const universePanel = visibleUniverseMonthPanel();
+    if (universePanel && monthOnly) {
+      await alignUniversePickerYear(universePanel, Number(date.slice(0, 4)));
+      const universeCell = matchingDateCell(date, true, universePanel);
+      if (!universeCell) throw new Error("字节月份控件中未找到目标月份");
+      (universeCell.querySelector(".ud__picker__cell-interactive-area") || universeCell).click();
+      await delay(350);
+      if (normalizedDate(freshFieldValue(item, element), item.key) === date) { await dismissDatePicker(); return; }
+      throw new Error("字节月份控件未稳定写入目标月份");
+    }
+
+    const cell = matchingDateCell(date, monthOnly);
     if (cell) {
       (cell.querySelector(".ant-calendar-date,.ant-picker-cell-inner") || cell).click();
       await delay(160);
-      if (norm(freshFieldValue(item, element)) === norm(date)) { await dismissDatePicker(); return; }
+      if (normalizedDate(freshFieldValue(item, element), item.key) === date) { await dismissDatePicker(); return; }
     }
 
     const wasReadOnly = element.readOnly;
     if (wasReadOnly) element.removeAttribute("readonly");
-    nativeSetter(element, date);
-    element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+    nativeSetter(element, editorText);
     if (wasReadOnly) element.setAttribute("readonly", "");
     await delay(80);
-    if (norm(freshFieldValue(item, element)) !== norm(date)) throw new Error("网页日期控件拒绝写入，请手动选择日期");
+    if (normalizedDate(freshFieldValue(item, element), item.key) !== date) throw new Error("网页日期控件拒绝写入，请手动选择日期");
     await dismissDatePicker();
   }
 
   async function setValue(element, value, item = {}) {
     const text = Array.isArray(value) ? value.map((item, index) => `${index + 1}. ${item}`).join("\n") : String(value ?? "");
+    if (!discoverable(element) || element.getAttribute("aria-readonly") === "true") throw new Error("字段不可编辑");
+    if (element.maxLength > 0 && text.length > element.maxLength) throw new Error(`内容超过字段上限 ${element.maxLength} 字，请缩短后重试`);
+    if (["date", "month"].includes(element.type)) {
+      const date = normalizedDate(text, item.key);
+      if (!date) throw new Error(`日期格式无效：“${text}”`);
+      nativeSetter(element, element.type === "month" ? date.slice(0, 7) : date);
+      if (!element.validity.valid) throw new Error("日期不符合网页限制，请手动选择");
+      return;
+    }
     const dateLike = ["start", "end", "birthDate", "dateRange"].includes(item.key) || /日期|起止时间|date|calendar/i.test(`${item.label || ""} ${element.placeholder || ""} ${element.className || ""}`);
-    if (dateLike && (element.readOnly || element.type === "date" || element.closest("[class*=date],.ant-calendar-picker,.ant-picker,.el-date-editor,.arco-picker"))) {
+    if (dateLike && (element.readOnly || element.type === "date" || element.closest("[class*=date],.ant-calendar-picker,.ant-picker,.el-date-editor,.arco-picker,.throne-biz-date-range-picker-wrapper"))) {
       await setDatePickerValue(element, text, item);
       return;
     }
     if (element.type === "radio") {
-      const group = element.name ? [...document.querySelectorAll(`input[type=radio][name="${CSS.escape(element.name)}"]`)] :
-        [...(element.closest("[class*=fieldItem],.form-item,.ud-formily-item") || element.parentElement).querySelectorAll("input[type=radio]")];
+      const group = radioGroup(element);
       const wanted = norm(text);
       const option = group.find((item) => {
         const candidate = norm(optionText(item));
-        return candidate === wanted || candidate.includes(wanted) || wanted.includes(candidate) || norm(item.value) === wanted;
+        return !item.disabled && (candidate === wanted || norm(item.value) === wanted);
       });
       if (!option) throw new Error(`单选项中未找到“${text}”`);
       if (!option.checked) option.click();
       option.dispatchEvent(new Event("change", { bubbles: true }));
+      await delay(300);
+      if (norm(freshFieldValue(item, option)) !== wanted) throw new Error("单选项未稳定写入");
       return;
     }
     if (element.type === "checkbox") {
@@ -467,18 +618,51 @@
     const customRoot = customSelectRoot(element);
     if (customRoot) {
       const wantedParts = text.split(/\s*(?:\/|／|,|，)\s*/).map(clean).filter(Boolean);
+      if (!wantedParts.length) throw new Error("该下拉框不支持自动清空");
       const current = norm(customSelectedText(element));
       if (current && wantedParts.every((part) => current.includes(norm(part)))) return;
       const isOpen = customRoot.getAttribute("aria-expanded") === "true" || /(?:^|\s)(?:atsx|ant|semi|el)-select-open(?:\s|$)/.test(String(customRoot.parentElement?.className || ""));
       if (!isOpen) customRoot.click();
-      await delay(100);
+      await delay(150);
+      const visibleOptions = () => [...document.querySelectorAll("[role=option],[role=treeitem],.atsx-select-dropdown-menu-item,.atsx-tree-node-content-wrapper,.ant-select-item-option,.ant-cascader-menu-item,.semi-select-option,.el-select-dropdown__item,.arco-select-option,.ud__select-option,.ud__select__option")]
+        .filter((node) => visibleElement(node));
+      const matchingOption = (nodes, part) => {
+        const wanted = norm(part);
+        const aliases = new Set([wanted]);
+        if (wanted === norm("应用经济学")) ["经济学", "经济学相关类"].forEach((alias) => aliases.add(norm(alias)));
+        if (wanted === norm("硕士（Master）")) aliases.add(norm("硕士"));
+        const exact = nodes.find((node) => node.getAttribute("aria-disabled") !== "true" && !node.matches(":disabled,[class*=disabled]") && aliases.has(norm(node.textContent)));
+        if (exact) return exact;
+        const partial = nodes.filter((node) => node.getAttribute("aria-disabled") !== "true" && !node.matches(":disabled,[class*=disabled]")
+          && [...aliases].some((alias) => alias.length >= 3 && norm(node.textContent).includes(alias)));
+        return partial.length === 1 ? partial[0] : null;
+      };
       for (let partIndex = 0; partIndex < wantedParts.length; partIndex += 1) {
         const part = wantedParts[partIndex];
-        const options = [...document.querySelectorAll("[role=option],[role=treeitem],.atsx-select-dropdown-menu-item,.atsx-tree-node-content-wrapper,.ant-select-item-option,.ant-cascader-menu-item,.semi-select-option,.el-select-dropdown__item,.arco-select-option,.ud__select-option,.ud__select__option")]
-          .filter((node) => { const rect = node.getBoundingClientRect(); return rect.width > 0 && rect.height > 0; });
-        const wanted = norm(part);
-        const option = options.find((node) => norm(node.textContent) === wanted)
-          || options.find((node) => norm(node.textContent).includes(wanted) || wanted.includes(norm(node.textContent)));
+        let options = visibleOptions();
+        let option = matchingOption(options, part);
+        if (!option) {
+          // School/company selectors frequently fetch options only after text
+          // input. Type into the visible popup search box and wait for its
+          // asynchronous result list instead of declaring a false failure.
+          const searchInputs = [...document.querySelectorAll(".atsx-select-dropdown input,.ant-select-dropdown input,.ant-cascader-menus input,.semi-portal input,.el-select-dropdown input,.arco-trigger-popup input,[role=listbox] input")]
+            .filter((input) => visibleElement(input) && !input.disabled);
+          let search = searchInputs.at(-1);
+          if (!search && element.tagName === "INPUT" && !element.readOnly) search = element;
+          if (search) {
+            search.focus();
+            const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+            setter ? setter.call(search, part) : (search.value = part);
+            search.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: part }));
+            search.dispatchEvent(new Event("change", { bubbles: true }));
+            search.dispatchEvent(new KeyboardEvent("keyup", { key: part.at(-1) || "", bubbles: true }));
+            for (let wait = 0; wait < 12 && !option; wait += 1) {
+              await delay(150);
+              options = visibleOptions();
+              option = matchingOption(options, part);
+            }
+          }
+        }
         if (!option) throw new Error(`下拉框中未找到“${part}”`);
         const treeItem = option.matches("[role=treeitem]") ? option : option.closest("[role=treeitem]");
         if (treeItem && partIndex < wantedParts.length - 1) {
@@ -490,14 +674,18 @@
         }
         await delay(120);
       }
-      const chosen = norm(customSelectedText(element));
+      await delay(450);
+      const chosen = norm(freshFieldValue(item, element));
       const finalPart = norm(wantedParts.at(-1)).replace(/(特别行政区|自治区|省|市)$/g, "");
       const chosenComparable = chosen.replace(/(特别行政区|自治区|省|市)$/g, "");
-      if (!chosenComparable || !chosenComparable.includes(finalPart)) throw new Error("下拉框选中值未稳定写入");
+      const accepted = chosenComparable && (chosenComparable.includes(finalPart) || finalPart.includes(chosenComparable)
+        || (norm(text) === norm("应用经济学") && chosenComparable.includes(norm("经济学")))
+        || (norm(text) === norm("硕士（Master）") && chosenComparable === norm("硕士")));
+      if (!accepted) throw new Error("下拉框选中值未稳定写入");
       return;
     }
     if (element.tagName === "SELECT") {
-      const option = [...element.options].find((item) => norm(item.textContent) === norm(text) || item.value === text);
+      const option = [...element.options].find((item) => !item.disabled && !item.closest("optgroup[disabled]") && (norm(item.textContent) === norm(text) || item.value === text));
       if (!option) throw new Error("下拉框没有完全匹配的选项");
       element.value = option.value; element.dispatchEvent(new Event("change", { bubbles: true })); return;
     }
@@ -505,25 +693,36 @@
       element.focus(); document.execCommand("selectAll", false, null); document.execCommand("insertText", false, text);
       element.dispatchEvent(new Event("input", { bubbles: true })); return;
     }
+    if (element.readOnly) throw new Error("字段只读，请手动填写");
     nativeSetter(element, text);
-    await delay(0);
-    const actual = norm(fieldValue(element));
-    const expected = norm(text);
-    if (!(actual === expected || (actual && expected && (actual.includes(expected) || expected.includes(actual))))) throw new Error("网页控件拒绝了普通文本赋值");
+    await delay(350);
+    const actual = clean(freshFieldValue(item, element));
+    const expected = clean(text);
+    if (actual !== expected) throw new Error("网页控件拒绝或截断了普通文本赋值");
   }
 
-  async function ensureRecords(targets = {}) {
+  async function ensureRecords(targets = {}, expectedUrl = location.href) {
     const added = [];
     for (const [section, desired] of Object.entries(targets)) {
       for (let guard = 0; guard < 12; guard += 1) {
+        if (location.href !== expectedUrl) throw new Error("页面已跳转，停止添加记录");
         const fields = discover();
         const current = Math.max(0, ...fields.filter((field) => field.section === section && field.recordIndex != null).map((field) => field.recordIndex + 1));
         if (current >= desired) break;
         const repeater = discoverRepeaters(fields).find((item) => item.section === section);
         const button = repeater && document.querySelector(`[data-recruitment-add-id="${CSS.escape(repeater.id)}"]`);
-        if (!button) throw new Error(`未找到“${section}”区块的添加按钮`);
-        button.click(); added.push(section); await delay(200);
+        if (!button || !safeAddButton(button)) throw new Error(`未找到“${section}”区块的安全添加按钮`);
+        button.click(); added.push(section);
+        let increased = false;
+        for (let wait = 0; wait < 20; wait += 1) {
+          await delay(150);
+          const count = Math.max(0, ...discover().filter((field) => field.section === section && field.recordIndex != null).map((field) => field.recordIndex + 1));
+          if (count > current) { increased = true; break; }
+        }
+        if (!increased) throw new Error(`添加“${section}”后未出现新字段，已停止重复点击；请手动展开记录后重新扫描`);
       }
+      const count = Math.max(0, ...discover().filter((field) => field.section === section && field.recordIndex != null).map((field) => field.recordIndex + 1));
+      if (count < desired) throw new Error(`“${section}”记录尚未补齐，请检查后重新扫描`);
     }
     const fields = discover();
     return { added, fields, repeaters: discoverRepeaters(fields) };
@@ -543,6 +742,8 @@
     const candidates = currentFields.map((field) => {
       if (item.section && field.section !== item.section) return { field, score: -1 };
       if (Number.isInteger(item.recordIndex) && field.recordIndex !== item.recordIndex) return { field, score: -1 };
+      if (field.readOnly || !fieldMatchesPlanItem(field, item, true)) return { field, score: -1 };
+      if ((!item.key || item.key === "unknown") && !item.label) return { field, score: -1 };
       let score = 0;
       if (item.domId && field.domId === item.domId) score += 50;
       if (item.key && item.key !== "unknown" && field.key === item.key) score += 35;
@@ -559,12 +760,27 @@
     return element ? { element, fieldId: field.id, relocated: true } : null;
   }
 
-  async function executePlan(items = []) {
+  async function executePlan(items = [], expectedUrl = location.href) {
     const results = [];
+    const blockedRows = new Set();
+    const initial = discover();
+    const rowKey = (item) => `${item.section}:${item.recordIndex}`;
     for (const item of items) {
+      if ((item.recordIdentity || []).some((identity) => {
+        const matches = initial.filter((field) => field.section === item.section && field.recordIndex === item.recordIndex && field.key === identity.key);
+        return matches.length !== 1 || clean(matches[0].value) !== clean(identity.value);
+      })) blockedRows.add(rowKey(item));
+    }
+    for (const item of items) {
+      if (location.href !== expectedUrl || blockedRows.has(rowKey(item))) {
+        results.push({ fieldId: item.fieldId, ok: false, error: "页面或经历身份已变化，已停止该记录的填写" }); continue;
+      }
       const resolved = resolvePlanElement(item);
       if (!resolved) { results.push({ fieldId: item.fieldId, ok: false, error: "页面更新后无法唯一定位字段" }); continue; }
       try {
+        const current = discover().find((field) => field.id === resolved.fieldId);
+        if (current?.readOnly) throw new Error("字段已变为只读");
+        if (item.currentValue != null && clean(current?.value) !== clean(item.currentValue) && clean(current?.value) !== clean(item.value)) throw new Error("字段内容自预览后已变化，请重新生成方案");
         await setValue(resolved.element, item.value, item);
         results.push({ fieldId: item.fieldId, resolvedFieldId: resolved.fieldId, relocated: resolved.relocated, ok: true });
         // Date pickers in some enterprise form stacks share transition state
@@ -574,29 +790,101 @@
       }
       catch (error) { results.push({ fieldId: item.fieldId, ok: false, error: error.message }); }
     }
+    // A later widget change can reset an earlier React/Vue field. Re-read all
+    // successful writes after the batch before reporting them as completed.
+    const finalFields = discover();
+    for (const result of results.filter((entry) => entry.ok)) {
+      const item = items.find((entry) => entry.fieldId === result.fieldId);
+      const candidates = finalFields.filter((field) => fieldMatchesPlanItem(field, item, true));
+      const field = candidates.find((candidate) => candidate.id === result.resolvedFieldId) || (candidates.length === 1 ? candidates[0] : null);
+      let matches = field && clean(field.value) === clean(item.value);
+      if (field && ["start", "end", "birthDate"].includes(item.key)) {
+        const element = document.querySelector(`[data-recruitment-id="${CSS.escape(field.id)}"]`);
+        const expectedDate = dateAtControlPrecision(item.value, item.key, element);
+        matches = Boolean(expectedDate) && dateAtControlPrecision(field.value, item.key, element) === expectedDate;
+      }
+      if (!matches) { result.ok = false; result.error = "填写后回读发现内容变化或未保留，请检查此项"; }
+    }
     return results;
   }
 
-  // Kept inside Chrome's isolated content-script world for real-site compatibility tests.
-  window.__recruitmentCopilotTest = { discover, discoverRepeaters, ensureRecords, executePlan };
+  async function applyAgentPlan(items = [], additions = [], expectedUrl = location.href) {
+    const targets = {};
+    const failures = [];
+    const pending = [];
+    for (const item of items) {
+      if (!item.virtual) { pending.push(item); continue; }
+      const addition = additions.find((entry) => entry.fieldId === item.addId && entry.section === item.section);
+      if (!addition || !Number.isInteger(item.recordIndex) || item.recordIndex < addition.fromCount || item.recordIndex >= addition.desired) {
+        failures.push({ fieldId: item.fieldId, ok: false, error: "新增记录不在已确认方案中" }); continue;
+      }
+      targets[item.section] = Math.max(targets[item.section] || 0, item.recordIndex + 1);
+      pending.push(item);
+    }
+    const blockedSections = new Set();
+    for (const [section, desired] of Object.entries(targets)) {
+      if (location.href !== expectedUrl) throw new Error("页面已跳转，停止添加记录");
+      try { await ensureRecords({ [section]: desired }, expectedUrl); }
+      catch (error) { blockedSections.add(section); failures.push(...pending.filter((item) => item.virtual && item.section === section).map((item) => ({ fieldId: item.fieldId, ok: false, error: error.message }))); }
+    }
+    const currentFields = discover();
+    const unsafeRows = new Set();
+    for (const item of pending.filter((entry) => entry.virtual)) {
+      const row = currentFields.filter((field) => field.section === item.section && field.recordIndex === item.recordIndex);
+      for (const identity of row.filter((field) => ["school", "company", "projectName"].includes(field.key) && clean(field.value))) {
+        const expected = pending.find((entry) => entry.virtual && entry.section === item.section && entry.recordIndex === item.recordIndex && entry.key === identity.key);
+        if (!expected || clean(expected.value) !== clean(identity.value)) unsafeRows.add(`${item.section}:${item.recordIndex}`);
+      }
+    }
+    const bound = [];
+    for (const item of pending) {
+      if (!item.virtual) { bound.push(item); continue; }
+      if (blockedSections.has(item.section)) continue;
+      if (unsafeRows.has(`${item.section}:${item.recordIndex}`)) {
+        failures.push({ fieldId: item.fieldId, ok: false, error: "新增记录带有其他经历的身份，已停止整条记录的填写" }); continue;
+      }
+      const matches = currentFields.filter((field) => field.section === item.section && field.recordIndex === item.recordIndex
+        && field.key === item.key && norm(field.label) === norm(item.label) && field.control === item.control && field.type === item.type && !field.readOnly);
+      if (matches.length !== 1 || (matches[0].maxLength && String(item.value).length > matches[0].maxLength)
+        || (clean(matches[0].value) && clean(matches[0].value) !== clean(item.value))) {
+        failures.push({ fieldId: item.fieldId, ok: false, error: "新增字段与预览模板不一致或已有内容，已跳过" }); continue;
+      }
+      bound.push({ ...item, originalFieldId: item.fieldId, fieldId: matches[0].id, domId: matches[0].domId, currentValue: matches[0].value });
+    }
+    const executed = await executePlan(bound, expectedUrl);
+    return [...failures, ...executed.map((result, index) => ({ ...result, fieldId: bound[index]?.originalFieldId || result.fieldId }))];
+  }
 
+  // Kept inside Chrome's isolated content-script world for real-site compatibility tests.
+  window.__recruitmentCopilotTest = { discover, discoverRepeaters, ensureRecords, executePlan, applyAgentPlan, semanticKey, assignRecordIndexes };
+
+  let mutationBusy = false;
   chrome.runtime.onMessage.addListener((message, _sender, respond) => {
     (async () => {
+      if (message.expectedUrl && message.expectedUrl !== location.href) throw new Error("页面已跳转，请重新扫描");
+      if (["RECRUITMENT_APPLY_AGENT_PLAN", "RECRUITMENT_ENSURE_RECORDS", "RECRUITMENT_EXECUTE_PLAN", "RECRUITMENT_FILL"].includes(message.type)) {
+        if (mutationBusy) throw new Error("已有填表操作进行中，请勿重复执行");
+        mutationBusy = true;
+        // Cancel native submit events caused indirectly by a widget's click handler.
+        const preventSubmit = (event) => { event.preventDefault(); event.stopImmediatePropagation(); };
+        window.addEventListener("submit", preventSubmit, true);
+        try {
+          if (message.type === "RECRUITMENT_APPLY_AGENT_PLAN") return { ok: true, results: await applyAgentPlan(message.items || [], message.additions || [], message.expectedUrl || location.href) };
+          if (message.type === "RECRUITMENT_ENSURE_RECORDS") return { ok: true, ...(await ensureRecords(message.targets || {})) };
+          const items = message.type === "RECRUITMENT_FILL" ? [{ ...(message.field || {}), fieldId: message.id, value: message.value }] : message.items || [];
+          const results = await executePlan(items, message.expectedUrl || location.href);
+          return { ok: message.type !== "RECRUITMENT_FILL" || Boolean(results[0]?.ok), error: results[0]?.error, results };
+        } finally { mutationBusy = false; window.removeEventListener("submit", preventSubmit, true); }
+      }
       if (message.type === "RECRUITMENT_ANALYZE" || message.type === "RECRUITMENT_DISCOVER") {
         const fields = discover();
         return { ok: true, page: { url: location.href, title: document.title, host: location.host, fields, repeaters: discoverRepeaters(fields) }, fields };
       }
-      if (message.type === "RECRUITMENT_ENSURE_RECORDS") return { ok: true, ...(await ensureRecords(message.targets || {})) };
-      if (message.type === "RECRUITMENT_EXECUTE_PLAN") return { ok: true, results: await executePlan(message.items || []) };
       if (message.type === "RECRUITMENT_HIGHLIGHT") {
         highlighted?.style.removeProperty("outline");
         highlighted = document.querySelector(`[data-recruitment-id="${CSS.escape(message.id)}"]`);
         if (highlighted) { highlighted.style.outline = "2px solid #2563eb"; highlighted.scrollIntoView({ behavior: "smooth", block: "center" }); }
         return { ok: Boolean(highlighted) };
-      }
-      if (message.type === "RECRUITMENT_FILL") {
-        const results = await executePlan([{ ...(message.field || {}), fieldId: message.id, value: message.value }]);
-        return { ok: Boolean(results[0]?.ok), error: results[0]?.error, results };
       }
       return { ok: false, error: "未知消息" };
     })().then(respond).catch((error) => respond({ ok: false, error: error.message }));

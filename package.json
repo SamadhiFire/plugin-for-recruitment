@@ -1,14 +1,19 @@
 {
   "name": "recruitment-resume-copilot",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.9.6",
   "type": "module",
   "scripts": {
     "start": "node server/server.mjs",
-    "check": "node --check server/server.mjs && node --check extension/content/content.js && node --check extension/sidepanel/sidepanel.js",
+    "preview:ui": "node scripts/preview-ui.mjs",
+    "check": "node --check server/server.mjs && node --check server/agent.mjs && node --check extension/content/content.js && node --check extension/sidepanel/sidepanel.js",
+    "test": "node --test tests/*.test.mjs",
     "pack": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pack.ps1"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1"
   }
 }

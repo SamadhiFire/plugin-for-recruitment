@@ -4,11 +4,13 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setDefaultResultOrder } from "node:dns";
+import { expandRecords, reviewPlan } from "./agent.mjs";
 
 setDefaultResultOrder("ipv4first");
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const profilePath = resolve(root, "data", "resume.profile.json");
+const baseProfilePath = resolve(root, "data", "resume.profile.json");
+const profileCatalogPath = resolve(root, "data", "profile-catalog.json");
 const memoryPath = resolve(root, "data", "answers.memory.json");
 const envPath = resolve(root, ".env");
 
@@ -23,6 +25,7 @@ async function loadEnv() {
 await loadEnv();
 
 const port = Number(process.env.PORT || 8787);
+const buildVersion = "0.9.3";
 const baseUrl = (process.env.DASHSCOPE_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1").replace(/\/$/, "");
 let model = process.env.QWEN_MODEL || "qwen3.8-max";
 const rules = [
@@ -33,9 +36,7 @@ const rules = [
   "如用户要求的信息不在简历中，明确写“【待确认】”，不要猜测。"
 ].join("\n");
 
-const variants = {
-  ai_pm: "目标：AI 产品经理。根据岗位与字段语义，综合突出 Agent 工作流、RAG、Evals、Badcase、0-1 验证、用户旅程、产品机制、增长实验、商业化和数据闭环。"
-};
+const fallbackDirectionPrompt = "根据所选简历方向、岗位与字段语义组织内容，严格保持事实口径一致。";
 
 const fieldDefinitions = [
   ["basics.name", "姓名", ["姓名", "中文名", "姓名（中文）"]],
@@ -56,6 +57,9 @@ const fieldDefinitions = [
   ["skills", "专业技能", ["专业技能", "技能", "掌握技能", "技术技能"]],
   ["applicationAnswers.aiToolsModels", "常用AI工具与模型", ["请列出你常用的AI工具&模型", "请列出常用的AI工具和模型", "AI应用技能", "AI工具与模型", "AI工具&模型", "常用AI工具", "常用大模型", "人工智能工具", "大模型使用经验"]],
   ["applicationAnswers.aiCollaborationProjects", "与AI协作完成的项目或任务", ["AI协作项目", "AI项目经历", "使用AI完成的项目", "与AI协作完成的任务", "AI实践项目"]],
+  ["applicationAnswers.coreStrengths", "个人优势/核心竞争力", ["个人优势", "核心竞争力", "岗位胜任力", "为什么选择你"]],
+  ["applicationAnswers.selfIntroduction", "个人简介/自我介绍", ["个人简介", "自我介绍", "请介绍一下自己"]],
+  ["applicationAnswers.whyAigcProductManager", "为什么选择AIGC产品经理", ["为什么选择AIGC产品经理", "为什么应聘AIGC产品经理", "选择AIGC方向的原因", "AIGC岗位动机"]],
   ["applicationAnswers.personalStrengths", "个人特长", ["个人特长", "特长", "能力特长", "核心特长"]],
   ["applicationAnswers.hobbies", "兴趣爱好", ["兴趣爱好", "兴趣与爱好", "个人爱好", "爱好"]],
   ["applicationAnswers.selfEvaluation", "自我评价", ["自我评价", "个人评价", "综合评价", "自我鉴定"]]
@@ -92,6 +96,7 @@ function flattenCatalog(profile) {
       ["majorCategory", "专业类别", ["专业类别", "专业大类"]],
       ["degree", "学历", ["学历", "学位", "最高学历"]],
       ["educationType", "受教育类型", ["受教育类型", "学历类型"]],
+      ["isHighestDegree", "是否最高学历", ["是否最高学历"]],
       ["exchange", "交流学习", ["是否交流学习", "该学历是否为交流学习"]],
       ["jointProgram", "联合办学", ["是否联合办学", "该学历是否为联合办学"]],
       ["rank", "成绩排名", ["成绩排名", "年级成绩排名"]],
@@ -123,10 +128,17 @@ function flattenCatalog(profile) {
   return catalog.filter((item) => item.value != null);
 }
 function normalized(value = "") { return String(value).toLowerCase().replace(/[\s：:（）()【】\[\]·、，,。.!！?？]/g, ""); }
-function equivalentValue(left, right) {
-  const a = normalized(left);
-  const b = normalized(right);
-  return a === b || (a && b && (a.includes(b) || b.includes(a)));
+function equivalentValue(left, right, field = {}) {
+  const comparable = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
+  const a = comparable(left);
+  const b = comparable(right);
+  if (a === b) return true;
+  // A month-only resume date may be displayed by a date picker with day 01.
+  if (["start", "end", "birthDate"].includes(field.key)) {
+    const date = (value) => String(value).trim().replace(/[./]/g, "-");
+    return /^\d{4}-\d{2}$/.test(date(left)) && date(right) === `${date(left)}-01`;
+  }
+  return false;
 }
 function deterministicMatches(fields, profile, pageUrl) {
   const catalog = flattenCatalog(profile);
@@ -161,15 +173,55 @@ async function readBody(request) {
   if (Buffer.concat(chunks).length > 1_000_000) throw new Error("请求过大");
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
 }
-async function getProfile() { return JSON.parse(await readFile(profilePath, "utf8")); }
+async function readJson(path) { return JSON.parse(await readFile(path, "utf8")); }
+async function getProfileCatalog() {
+  const catalog = await readJson(profileCatalogPath);
+  if (!Array.isArray(catalog.profiles) || !catalog.profiles.length) throw new Error("简历方向配置为空");
+  return catalog;
+}
+async function getProfileEntry(profileId, { requireReady = false } = {}) {
+  if (!profileId) throw new Error("请先选择简历方向");
+  const catalog = await getProfileCatalog();
+  const entry = catalog.profiles.find((item) => item.id === profileId);
+  if (!entry) throw new Error("简历方向不存在或已停用");
+  if (requireReady && entry.status !== "ready") throw new Error(`“${entry.label}”内容仍待补充，暂不能生成填表计划`);
+  return entry;
+}
+function deepMerge(base, overlay) {
+  if (Array.isArray(overlay)) return structuredClone(overlay);
+  if (!overlay || typeof overlay !== "object") return overlay === undefined ? structuredClone(base) : overlay;
+  const result = base && typeof base === "object" && !Array.isArray(base) ? structuredClone(base) : {};
+  for (const [key, value] of Object.entries(overlay)) result[key] = deepMerge(result[key], value);
+  return result;
+}
+function deepDiff(base, value) {
+  if (Array.isArray(value)) return JSON.stringify(base) === JSON.stringify(value) ? undefined : structuredClone(value);
+  if (!value || typeof value !== "object") return Object.is(base, value) ? undefined : value;
+  const result = {};
+  for (const [key, item] of Object.entries(value)) {
+    const difference = deepDiff(base?.[key], item);
+    if (difference !== undefined) result[key] = difference;
+  }
+  return Object.keys(result).length ? result : undefined;
+}
+async function getProfileContext(profileId, options = {}) {
+  const entry = await getProfileEntry(profileId, options);
+  const base = await readJson(baseProfilePath);
+  const overlayPath = resolve(root, "data", entry.file);
+  const overlay = existsSync(overlayPath) ? await readJson(overlayPath) : {};
+  return { entry, base, overlay, profile: deepMerge(base, overlay), overlayPath };
+}
+async function getProfile(profileId, options = {}) { return (await getProfileContext(profileId, options)).profile; }
 async function getMemory() {
   if (!existsSync(memoryPath)) return { version: 1, updatedAt: new Date().toISOString(), answers: [] };
   return JSON.parse(await readFile(memoryPath, "utf8"));
 }
-async function saveMemory(entries) {
+async function saveMemory(entries, profileId) {
+  await getProfileEntry(profileId);
   const memory = await getMemory();
   const accepted = (Array.isArray(entries) ? entries : []).filter((entry) => entry?.label && entry?.value != null && String(entry.value).trim()).map((entry) => ({
-    key: normalized(`${entry.section || "other"}:${entry.label}`),
+    scope: ["basics", "language"].includes(entry.section) ? "global" : `profile:${profileId}`,
+    key: normalized(`${["basics", "language"].includes(entry.section) ? "global" : `profile:${profileId}`}:${entry.section || "other"}:${entry.label}`),
     section: entry.section || "other",
     label: String(entry.label).trim().slice(0, 200),
     value: String(entry.value).trim().slice(0, 12000),
@@ -193,49 +245,90 @@ const sectionSpecs = {
 function buildAlignment(fields, profile) {
   const mapping = {};
   const targets = {};
+  const recordActions = [];
+  const recordIssues = [];
   for (const [section, spec] of Object.entries(sectionSpecs)) {
     const sectionFields = fields.filter((field) => field.section === section && Number.isInteger(field.recordIndex));
     const currentCount = sectionFields.length ? Math.max(...sectionFields.map((field) => field.recordIndex)) + 1 : 0;
     const identities = new Map(sectionFields.filter((field) => field.key === spec.identityKey && String(field.value || "").trim()).map((field) => [field.recordIndex, String(field.value)]));
+    const rowIndexes = [...new Set(sectionFields.map((field) => field.recordIndex))];
+    const rowValue = (index, key) => sectionFields.find((field) => field.recordIndex === index && field.key === key)?.value || "";
     const used = new Set();
     const profileToPage = {};
     const records = profile[spec.list] || [];
-    records.forEach((record, profileIndex) => {
-      const wantedValues = [record[spec.profileIdentity], ...(Array.isArray(record.aliases) ? record.aliases : [])].map(normalized).filter(Boolean);
-      const match = [...identities.entries()].find(([pageIndex, value]) => {
-        const existing = normalized(value);
-        const identityMatches = wantedValues.some((wanted) => existing === wanted || existing.includes(wanted) || wanted.includes(existing));
-        if (!identityMatches || used.has(pageIndex)) return false;
-        if (section !== "experience") return true;
-        const pageDescription = sectionFields.find((field) => field.recordIndex === pageIndex && field.key === "description")?.value || "";
-        const canonicalDescription = formattedValue(`experience.${profileIndex}.bullets`, record.bullets || [], {});
-        const roleValue = sectionFields.find((field) => field.recordIndex === pageIndex && field.key === "role")?.value || "";
-        return equivalentValue(roleValue, record.role || "") && normalized(pageDescription) === normalized(canonicalDescription);
-      });
-      if (match) { profileToPage[profileIndex] = match[0]; used.add(match[0]); }
+    const aliases = records.map((record) => [record[spec.profileIdentity], ...(Array.isArray(record.aliases) ? record.aliases : [])].map(normalized).filter(Boolean));
+    const anchors = (record, pageIndex) => [
+      ["role", record.role, 3], ["degree", record.degree, 3], ["major", record.major, 2],
+      ["start", record.start, 4], ["end", record.end, 2]
+    ].filter(([key, value]) => value && rowValue(pageIndex, key) && equivalentValue(String(value).replaceAll(".", "-"), rowValue(pageIndex, key), { key }));
+    const assign = (profileIndex, pageIndex, mode, reason) => {
+      profileToPage[profileIndex] = pageIndex; used.add(pageIndex);
+      recordActions.push({ section, recordIndex: pageIndex, profileIndex, mode, identity: records[profileIndex][spec.profileIdentity], reason });
+    };
+    // Body text is mutable content, never an identity requirement. Same-company
+    // internships should be updated in place instead of duplicated on every revision.
+    for (let pass = 0; pass < 2; pass++) records.forEach((record, profileIndex) => {
+      if (profileToPage[profileIndex] != null) return;
+      const matches = [...identities.entries()].filter(([pageIndex, value]) => !used.has(pageIndex) && aliases[profileIndex].includes(normalized(value)))
+        .map(([pageIndex]) => ({ pageIndex, score: anchors(record, pageIndex).reduce((sum, item) => sum + item[2], 0) }))
+        .sort((left, right) => right.score - left.score);
+      if (!matches.length) return;
+      const best = matches[0];
+      const competitors = records.filter((_other, index) => index !== profileIndex && profileToPage[index] == null
+        && aliases[index].includes(normalized(identities.get(best.pageIndex))));
+      if (matches[1] && (best.score === matches[1].score || !best.score)) return;
+      if (competitors.length && !best.score) return;
+      if (competitors.some((other) => anchors(other, best.pageIndex).reduce((sum, item) => sum + item[2], 0) >= best.score)) return;
+      if (section === "experience" && record.role && rowValue(best.pageIndex, "role") && record.start && rowValue(best.pageIndex, "start")
+        && !equivalentValue(record.role, rowValue(best.pageIndex, "role"))
+        && !equivalentValue(String(record.start).replaceAll(".", "-"), rowValue(best.pageIndex, "start"), { key: "start" })) return;
+      assign(profileIndex, best.pageIndex, "reuse", "身份匹配，原记录中缺漏或过时的字段将在复核后修正");
     });
-    const emptyPageIndexes = Array.from({ length: currentCount }, (_, index) => index)
-      .filter((pageIndex) => !used.has(pageIndex) && !identities.has(pageIndex));
+    const uncertainProfiles = new Set();
+    records.forEach((record, profileIndex) => {
+      if (profileToPage[profileIndex] != null) return;
+      const plausible = rowIndexes.filter((pageIndex) => !used.has(pageIndex) && (
+        aliases[profileIndex].includes(normalized(identities.get(pageIndex) || ""))
+        || (anchors(record, pageIndex).length >= 2 && anchors(record, pageIndex).some(([key]) => key === "start"))));
+      if (plausible.length) {
+        uncertainProfiles.add(profileIndex);
+        recordIssues.push({ section, profileIndex, recordIndexes: plausible, identity: record[spec.profileIdentity], kind: "ambiguous",
+          reason: "原记录身份存在冲突，已保留；优先另行补齐简历中的明确经历，最后可删除多余条目" });
+      }
+    });
+    const emptyPageIndexes = rowIndexes
+      .filter((pageIndex) => !used.has(pageIndex) && !identities.has(pageIndex)
+        && !sectionFields.some((field) => field.recordIndex === pageIndex && String(field.value || "").trim()
+          && !["checkbox", "radio"].includes(field.control)));
     let nextIndex = currentCount;
     records.forEach((_record, profileIndex) => {
       if (profileToPage[profileIndex] == null) {
         const reusableIndex = emptyPageIndexes.shift();
-        profileToPage[profileIndex] = reusableIndex == null ? nextIndex++ : reusableIndex;
+        assign(profileIndex, reusableIndex == null ? nextIndex++ : reusableIndex, reusableIndex == null ? "add" : "fill",
+          uncertainProfiles.has(profileIndex) ? "原记录身份含糊，另行补齐本方向经历，避免遗漏或误覆盖" : reusableIndex == null ? "页面缺少此经历，准备新增" : "优先复用已有空白记录");
       }
     });
+    for (const pageIndex of rowIndexes.filter((index) => !used.has(index))) {
+      if (recordIssues.some((issue) => issue.section === section && issue.recordIndexes.includes(pageIndex))) continue;
+      const hasContent = sectionFields.some((field) => field.recordIndex === pageIndex && String(field.value || "").trim());
+      if (!hasContent) continue;
+      recordIssues.push({ section, recordIndexes: [pageIndex], kind: "preserved", identity: identities.get(pageIndex) || "未命名记录",
+        reason: "网页已有额外或旧记录，已保留；如不需要，可在最终检查时手动删除" });
+    }
     mapping[section] = Object.fromEntries(Object.entries(profileToPage).map(([profileIndex, pageIndex]) => [pageIndex, Number(profileIndex)]));
     targets[section] = nextIndex;
   }
-  return { mapping, targets };
+  return { mapping, targets, recordActions, recordIssues };
 }
 
 function profilePathFor(field, alignment) {
-  const basicMap = { name: "basics.name", gender: "basics.gender", birthDate: "basics.birthDate", phone: "basics.phoneNumber", phoneCountry: "basics.phoneCountry", phoneNumber: "basics.phoneNumber", email: "basics.email", idType: "basics.idType", idNumber: "basics.idNumber", nationality: "basics.nationality", hometown: "basics.hometownText", interviewLocation: "basics.interviewLocation", summary: "basics.summary", skills: "skills", aiToolsModels: "applicationAnswers.aiToolsModels", aiCollaborationProjects: "applicationAnswers.aiCollaborationProjects", personalStrengths: "applicationAnswers.personalStrengths", hobbies: "applicationAnswers.hobbies", selfEvaluation: "applicationAnswers.selfEvaluation" };
+  const basicMap = { name: "basics.name", gender: "basics.gender", birthDate: "basics.birthDate", phone: "basics.phoneNumber", phoneCountry: "basics.phoneCountry", phoneNumber: "basics.phoneNumber", email: "basics.email", idType: "basics.idType", idNumber: "basics.idNumber", nationality: "basics.nationality", hometown: "basics.hometownText", interviewLocation: "basics.interviewLocation", summary: "basics.summary", skills: "skills", aiToolsModels: "applicationAnswers.aiToolsModels", aiCollaborationProjects: "applicationAnswers.aiCollaborationProjects", coreStrengths: "applicationAnswers.coreStrengths", selfIntroduction: "applicationAnswers.selfIntroduction", whyAigcProductManager: "applicationAnswers.whyAigcProductManager", personalStrengths: "applicationAnswers.personalStrengths", hobbies: "applicationAnswers.hobbies", selfEvaluation: "applicationAnswers.selfEvaluation" };
   if (["basics", "summary", "skills", "other"].includes(field.section) && basicMap[field.key]) return basicMap[field.key];
+  if (field.section === "works" && field.key === "link") return "basics.portfolio";
   const profileIndex = alignment.mapping?.[field.section]?.[field.recordIndex];
   if (profileIndex == null) return null;
   if (field.section === "education") {
-    const educationMap = { school: "school", college: "college", schoolLocation: "locationText", major: "major", majorCategory: "majorCategory", degree: "degree", educationType: "educationType", exchange: "exchange", jointProgram: "jointProgram", rank: "rank", gpa: "gpa", advisor: "advisor", nationalKeyLab: "nationalKeyLab", laboratory: "laboratory", start: "start", end: "end" };
+    const educationMap = { school: "school", college: "college", schoolLocation: "locationText", major: "major", majorCategory: "majorCategory", degree: "degree", educationType: "educationType", isHighestDegree: "isHighestDegree", exchange: "exchange", jointProgram: "jointProgram", rank: "rank", gpa: "gpa", advisor: "advisor", nationalKeyLab: "nationalKeyLab", laboratory: "laboratory", start: "start", end: "end" };
     return educationMap[field.key] ? `education.${profileIndex}.${educationMap[field.key]}` : null;
   }
   if (["experience", "work"].includes(field.section)) return ({ company: "company", role: "role", description: "bullets", start: "start", end: "end" }[field.key]) ? `experience.${profileIndex}.${({ company: "company", role: "role", description: "bullets", start: "start", end: "end" })[field.key]}` : null;
@@ -271,13 +364,16 @@ async function qwenRequest(body) {
   const keys = configuredApiKeys();
   if (!keys.length) throw new Error("未配置 DASHSCOPE_API_KEY；请检查 .env 文件。");
   let lastError;
+  const deadline = Date.now() + 25000;
   for (const apiKey of keys) {
+    const remaining = deadline - Date.now();
+    if (remaining < 1000) break;
     try {
       const response = await fetch(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(60000)
+        signal: AbortSignal.timeout(remaining)
       });
       const result = await response.json();
       if (response.ok) return result;
@@ -288,46 +384,65 @@ async function qwenRequest(body) {
 }
 
 async function qwenJson(system, user) {
-  const result = await qwenRequest({ model, enable_thinking: false, temperature: 0.1, messages: [{ role: "system", content: system }, { role: "user", content: user }] });
+  const result = await qwenRequest({ model, enable_thinking: false, temperature: 0.1, max_tokens: 12000,
+    messages: [{ role: "system", content: system }, { role: "user", content: user }] });
   const raw = result?.choices?.[0]?.message?.content?.trim().replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
   try { return JSON.parse(raw); } catch { throw new Error("千问未返回有效的结构化 JSON"); }
 }
 
-async function autoPlan(payload) {
-  const profile = await getProfile();
+async function candidatePlan(payload, { askModel = async () => [], profileContext } = {}) {
+  const { entry, profile } = profileContext || await getProfileContext(payload.profileId, { requireReady: true });
   const memory = await getMemory();
   const fields = Array.isArray(payload.page?.fields) ? payload.page.fields : [];
   const alignment = buildAlignment(fields, profile);
   const plan = [];
   const unresolved = [];
+  const warnings = [];
   const planItem = (field, details) => ({
     fieldId: field.id,
     domId: field.domId || "",
     label: field.label || field.key,
     key: field.key || "unknown",
     type: field.type || "text",
+    control: field.control || "input",
     section: field.section || "other",
     recordIndex: Number.isInteger(field.recordIndex) ? field.recordIndex : null,
+    currentValue: field.value ?? "",
+    maxLength: field.maxLength || null,
     ...details
   });
-  for (const field of fields.filter((item) => !item.readOnly)) {
+  for (const field of fields.filter((item) => !item.readOnly && !["password", "file", "submit", "reset", "image", "button"].includes(item.type)
+    && !/验证码|短信码|密码|captcha|verification.?code|one.?time.?code/i.test(`${item.label || ""} ${item.key || ""}`))) {
     const path = profilePathFor(field, alignment);
     const value = path ? getValue(profile, path) : null;
-    if (path && value != null && String(value) !== "待确认") {
+    if (path && value != null && !String(value).includes("待确认")) {
       const formatted = formattedValue(path, value, field);
-      if (!equivalentValue(formatted, field.value || "")) plan.push(planItem(field, { path, value: formatted, confidence: "high", source: "resume", needsConfirmation: false, reason: "简历主库精确映射" }));
+      const variants = value && typeof value === "object" && !Array.isArray(value) ? Object.values(value).filter((item) => typeof item === "string") : [formattedValue(path, value, {})];
+      const truncated = field.maxLength > 0 && variants.length && variants.every((item) => item.length > field.maxLength);
+      if (!equivalentValue(formatted, field.value || "", field)) plan.push(planItem(field, { path, value: formatted, confidence: "high", source: "resume", needsConfirmation: Boolean(truncated), reason: truncated ? "原文超过字段字数上限，候选内容已缩短，请确认完整性后再勾选" : "简历主库精确映射" }));
+      continue;
+    }
+    const clearableEmptyProfileField = path && value == null
+      && ["gpa", "advisor", "laboratory"].includes(field.key)
+      && !["radio", "checkbox", "custom-select"].includes(field.control)
+      && String(field.value || "").trim();
+    if (clearableEmptyProfileField) {
+      plan.push(planItem(field, { path, value: "", clear: true, confidence: "high", source: "resume", needsConfirmation: false, reason: "简历主库明确为空，清除该条记录遗留的旧值" }));
       continue;
     }
     const isUnmatchedRepeatedRecord = ["education", "experience", "work", "project"].includes(field.section)
       && Number.isInteger(field.recordIndex)
       && alignment.mapping?.[field.section]?.[field.recordIndex] == null;
     if (isUnmatchedRepeatedRecord) continue;
-    const memoryKey = normalized(`${field.section || "other"}:${field.label || field.key}`);
-    const remembered = (memory.answers || []).find((entry) => entry.key === memoryKey);
+    const memoryScope = ["basics", "language"].includes(field.section) ? "global" : `profile:${payload.profileId}`;
+    const memoryKey = normalized(`${memoryScope}:${field.section || "other"}:${field.label || field.key}`);
+    const legacyMemoryKey = normalized(`${field.section || "other"}:${field.label || field.key}`);
+    const remembered = (memory.answers || []).find((item) => item.key === memoryKey
+      || (!item.scope && ["basics", "language"].includes(field.section) && item.key === legacyMemoryKey));
     if (remembered && !String(field.value || "").trim()) {
       plan.push(planItem(field, { value: formattedValue("memory", remembered.value, field), confidence: "high", source: "memory", needsConfirmation: false, reason: "曾在其他表单中保存过" }));
     } else if (!String(field.value || "").trim() && !/搜索(职位|岗位|关键词)|验证码|短信码|密码|上传附件|选择文件/.test(String(field.label || ""))) {
-      unresolved.push({ id: field.id, label: field.label, key: field.key, section: field.section, recordIndex: field.recordIndex, type: field.type, maxLength: field.maxLength, required: field.required });
+      unresolved.push({ id: field.id, label: field.label, key: field.key, section: field.section, recordIndex: field.recordIndex, type: field.type, control: field.control, options: field.options || [], maxLength: field.maxLength, required: field.required });
     }
   }
 
@@ -342,41 +457,77 @@ async function autoPlan(payload) {
       "涉及年龄、证件、地址、政治面貌、薪资等简历未提供的个人事实时，不得猜测，value 为空且 needsConfirmation=true。",
       "即使字段是选填，只要能从候选路径可靠映射也应返回；导航栏搜索、验证码、上传控件等非简历字段不要生成内容。",
       "confidence 只能是 high、medium、low。不要输出 Markdown。",
-      variants[payload.variant] || variants.ai_pm,
+      entry.prompt || fallbackDirectionPrompt,
       rules
     ].join("\n");
-    const aiItems = await qwenJson(system, `网站：${payload.page?.host || "未知"}\n待识别字段：${JSON.stringify(unresolved)}\n候选路径：${JSON.stringify(catalog)}\n简历事实：${JSON.stringify(profileForModel(profile))}\n岗位补充要求：${payload.instruction || "无"}`);
+    let aiItems = [];
+    try {
+      aiItems = await askModel(system, `网站：${payload.page?.host || "未知"}\n待识别字段：${JSON.stringify(unresolved)}\n候选路径：${JSON.stringify(catalog)}\n简历事实：${JSON.stringify(profileForModel(profile))}\n岗位补充要求：${payload.instruction || "无"}`);
+      if (!Array.isArray(aiItems)) throw new Error("千问返回的方案不是数组");
+    } catch {
+      warnings.push("千问暂不可用或返回格式异常；已保留简历精确匹配，未知字段请手动确认。");
+      aiItems = [];
+    }
     const validIds = new Set(unresolved.map((item) => item.id));
     const validPaths = new Set(catalog.map((item) => item.path));
     const handled = new Set();
     for (const item of (Array.isArray(aiItems) ? aiItems : [])) {
-      if (!validIds.has(item.fieldId)) continue;
+      if (!item || !validIds.has(item.fieldId) || handled.has(item.fieldId)) continue;
       const field = fields.find((candidate) => candidate.id === item.fieldId);
-      handled.add(item.fieldId);
       if (item.path && validPaths.has(item.path)) {
         const value = getValue(profile, item.path);
-        if (value != null) plan.push(planItem(field, { path: item.path, value: formattedValue(item.path, value, field), confidence: item.confidence || "medium", source: "qwen-map", needsConfirmation: false, reason: item.reason || "千问语义映射" }));
+        if (value == null || String(value).includes("待确认")) continue;
+        const recordPath = item.path.match(/^(education|experience|projects)\.(\d+)\./);
+        const sectionList = sectionSpecs[field.section]?.list;
+        if (recordPath && sectionList && (recordPath[1] !== sectionList || Number(recordPath[2]) !== alignment.mapping[field.section]?.[field.recordIndex])) continue;
+        plan.push(planItem(field, { path: item.path, value: formattedValue(item.path, value, field), confidence: item.confidence || "medium", source: "qwen-map", needsConfirmation: true, reason: item.reason || "千问语义映射，请核对目标字段" }));
       } else {
         plan.push(planItem(field, { value: formattedValue("generated", item.value || "", field), confidence: item.confidence || "low", source: "qwen-generated", needsConfirmation: true, reason: item.reason || "简历无直接字段，需要确认" }));
       }
+      handled.add(item.fieldId);
     }
-    for (const field of unresolved.filter((item) => !handled.has(item.id))) {
+    for (const field of fields.filter((item) => validIds.has(item.id) && !handled.has(item.id))) {
       plan.push(planItem(field, { value: "", confidence: "low", source: "missing", needsConfirmation: true, reason: "简历与千问均未给出可靠答案，请补充并确认" }));
     }
   }
-  return { alignment, plan };
+  return { alignment, plan, warnings, profile: { id: entry.id, label: entry.label, status: entry.status, version: profile.meta?.version || 0 } };
+}
+
+async function autoPlan(payload, { askModel = qwenJson } = {}) {
+  const context = await getProfileContext(payload.profileId, { requireReady: true });
+  const alignment = buildAlignment(payload.page?.fields || [], context.profile);
+  const expanded = expandRecords(payload.page || {}, alignment);
+  const proposals = await candidatePlan({ ...payload, page: { ...payload.page, fields: expanded.fields } }, { profileContext: context });
+  const reviewProfile = { ...context.profile, savedAnswers: {} };
+  const catalog = flattenCatalog(context.profile);
+  proposals.plan.filter((item) => item.source === "memory").forEach((item, index) => {
+    item.path = `savedAnswers.${index}`;
+    reviewProfile.savedAnswers[index] = item.value;
+    catalog.push({ path: item.path, label: item.label, aliases: [item.label] });
+  });
+  const result = await reviewPlan({ fields: expanded.fields, alignment: proposals.alignment, proposed: proposals.plan,
+    catalog, profile: reviewProfile, profileFacts: profileForModel(context.profile),
+    directionPrompt: context.entry.prompt || fallbackDirectionPrompt, instruction: payload.instruction || "", host: payload.page?.host || "",
+    askModel, getValue, formattedValue, profilePathFor, equivalentValue });
+  const coverage = Object.entries(sectionSpecs).map(([section, spec]) => ({ section, total: context.profile[spec.list]?.length || 0,
+    existing: alignment.recordActions.filter((item) => item.section === section && item.mode !== "add").length,
+    plannedNew: expanded.additions.filter((item) => item.section === section).reduce((sum, item) => sum + item.desired - item.fromCount, 0) }));
+  return { ...result, alignment: proposals.alignment, additions: expanded.additions, recordActions: alignment.recordActions, recordIssues: alignment.recordIssues, coverage, profile: proposals.profile,
+    warnings: [...expanded.warnings, ...result.warnings], agentVersion: 2 };
 }
 function validateProfile(profile) {
   if (!profile || typeof profile !== "object" || Array.isArray(profile)) throw new Error("主库必须是 JSON 对象");
   if (!profile.meta || !profile.basics || !Array.isArray(profile.experience)) throw new Error("主库缺少 meta、basics 或 experience 字段");
 }
-async function saveProfile(profile) {
+async function saveProfile(profileId, profile) {
   validateProfile(profile);
+  const context = await getProfileContext(profileId);
   profile.meta.version = Number(profile.meta.version || 0) + 1;
   profile.meta.updatedAt = new Date().toISOString();
-  const temporaryPath = `${profilePath}.tmp`;
-  await writeFile(temporaryPath, `${JSON.stringify(profile, null, 2)}\n`, "utf8");
-  await rename(temporaryPath, profilePath);
+  const overlay = deepDiff(context.base, profile) || {};
+  const temporaryPath = `${context.overlayPath}.tmp`;
+  await writeFile(temporaryPath, `${JSON.stringify(overlay, null, 2)}\n`, "utf8");
+  await rename(temporaryPath, context.overlayPath);
   return profile;
 }
 async function saveConfig(config) {
@@ -401,20 +552,20 @@ async function saveConfig(config) {
   await writeFile(envPath, content, "utf8");
   return { hasApiKey: Boolean(keyToPersist), model: modelToPersist, baseUrl };
 }
-function systemPrompt(variant, task, instruction) {
+function systemPrompt(directionPrompt, task, instruction) {
   return [
     "你是严谨的中文求职简历编辑助手。",
     rules,
-    variants[variant] || variants.ai_pm,
+    directionPrompt || fallbackDirectionPrompt,
     `本次字段类型：${task}。`,
     instruction ? `用户补充要求：${instruction}` : "",
     "优先输出 2-3 条；单条 80-220 字。"
   ].filter(Boolean).join("\n");
 }
 async function compose(payload) {
-  const profile = await getProfile();
+  const { entry, profile } = await getProfileContext(payload.profileId, { requireReady: true });
   const result = await qwenRequest({ model, enable_thinking: false, temperature: 0.25, messages: [
-      { role: "system", content: systemPrompt(payload.variant, payload.task, payload.instruction) },
+      { role: "system", content: systemPrompt(entry.prompt, payload.task, payload.instruction) },
       { role: "user", content: `以下是唯一可使用的简历事实 JSON：\n${JSON.stringify(profileForModel(profile))}\n\n请为当前字段生成候选文案。` }
     ] });
   const text = result?.choices?.[0]?.message?.content?.trim();
@@ -422,9 +573,9 @@ async function compose(payload) {
   return text;
 }
 async function aiSuggestMappings(payload) {
-  const profile = await getProfile();
+  const profile = await getProfile(payload.profileId, { requireReady: true });
   const catalog = flattenCatalog(profile).map(({ path, label, aliases }) => ({ path, label, aliases }));
-  const fields = Array.isArray(payload.fields) ? payload.fields.map(({ id, label, type }) => ({ id, label, type })) : [];
+  const fields = Array.isArray(payload.fields) ? payload.fields.map(({ id, label, type, maxLength }) => ({ id, label, type, maxLength })) : [];
   if (!fields.length) return [];
   const result = await qwenRequest({ model, enable_thinking: false, temperature: 0, messages: [
       { role: "system", content: "你是招聘表单字段映射器。仅用字段语义进行映射，不要猜测。返回严格 JSON 数组，每项格式为 {fieldId,path,confidence,reason}。path 必须来自候选库；confidence 只能为 high、medium、none。一个含糊字段（如未标明哪个公司/项目的工作内容）必须返回 none。不要输出 Markdown 或其他文字。" },
@@ -441,19 +592,31 @@ async function aiSuggestMappings(payload) {
   });
 }
 
-createServer(async (request, response) => {
+export { autoPlan, candidatePlan, buildAlignment, getProfileCatalog, getProfileContext, profilePathFor };
+
+if (resolve(process.argv[1] || "") === fileURLToPath(import.meta.url)) createServer(async (request, response) => {
   try {
     if (request.method === "OPTIONS") return send(request, response, 204, {});
     const url = new URL(request.url, `http://127.0.0.1:${port}`);
-    if (request.method === "GET" && url.pathname === "/api/health") return send(request, response, 200, { ok: true, model });
+    if (request.method === "GET" && url.pathname === "/api/health") return send(request, response, 200, { ok: true, model, version: buildVersion });
     if (request.method === "GET" && url.pathname === "/api/config") return send(request, response, 200, { hasApiKey: configuredApiKeys().length > 0, model: process.env.QWEN_MODEL || model, baseUrl });
     if (request.method === "PUT" && url.pathname === "/api/config") return send(request, response, 200, await saveConfig(await readBody(request)));
-    if (request.method === "GET" && url.pathname === "/api/profile") return send(request, response, 200, { profile: await getProfile(), model });
-    if (request.method === "PUT" && url.pathname === "/api/profile") return send(request, response, 200, { profile: await saveProfile((await readBody(request)).profile) });
+    if (request.method === "GET" && url.pathname === "/api/profiles") {
+      const catalog = await getProfileCatalog();
+      return send(request, response, 200, { profiles: catalog.profiles.map(({ id, label, status, description }) => ({ id, label, status, description })) });
+    }
+    if (request.method === "GET" && url.pathname === "/api/profile") {
+      const context = await getProfileContext(url.searchParams.get("profileId"));
+      return send(request, response, 200, { profile: context.profile, profileMeta: { id: context.entry.id, label: context.entry.label, status: context.entry.status }, model });
+    }
+    if (request.method === "PUT" && url.pathname === "/api/profile") {
+      const payload = await readBody(request);
+      return send(request, response, 200, { profile: await saveProfile(payload.profileId, payload.profile) });
+    }
     if (request.method === "POST" && url.pathname === "/api/compose") return send(request, response, 200, { text: await compose(await readBody(request)), model });
     if (request.method === "POST" && url.pathname === "/api/match-fields") {
       const payload = await readBody(request);
-      return send(request, response, 200, { suggestions: deterministicMatches(payload.fields || [], await getProfile(), payload.pageUrl) });
+      return send(request, response, 200, { suggestions: deterministicMatches(payload.fields || [], await getProfile(payload.profileId, { requireReady: true }), payload.pageUrl) });
     }
     if (request.method === "POST" && url.pathname === "/api/ai-match-fields") {
       const payload = await readBody(request);
@@ -461,11 +624,14 @@ createServer(async (request, response) => {
     }
     if (request.method === "POST" && url.pathname === "/api/align-form") {
       const payload = await readBody(request);
-      return send(request, response, 200, buildAlignment(payload.fields || [], await getProfile()));
+      return send(request, response, 200, buildAlignment(payload.fields || [], await getProfile(payload.profileId, { requireReady: true })));
     }
     if (request.method === "POST" && url.pathname === "/api/auto-plan") return send(request, response, 200, await autoPlan(await readBody(request)));
     if (request.method === "GET" && url.pathname === "/api/memory") return send(request, response, 200, await getMemory());
-    if (request.method === "PUT" && url.pathname === "/api/memory") return send(request, response, 200, await saveMemory((await readBody(request)).entries));
+    if (request.method === "PUT" && url.pathname === "/api/memory") {
+      const payload = await readBody(request);
+      return send(request, response, 200, await saveMemory(payload.entries, payload.profileId));
+    }
     return send(request, response, 404, { error: "接口不存在" });
   } catch (error) {
     return send(request, response, 400, { error: error instanceof Error ? error.message : "未知错误" });

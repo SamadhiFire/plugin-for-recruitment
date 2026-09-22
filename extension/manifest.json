@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "求职简历助手",
-  "version": "0.6.0",
+  "version": "0.9.6",
   "description": "识别招聘表单、补齐重复经历、生成预览计划并一键填入；不会自动保存或提交。",
   "icons": {
     "16": "assets/icon-16.png",

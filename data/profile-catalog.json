@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "profiles": [
+    {
+      "id": "ai_product_general",
+      "label": "AI产品—通用",
+      "status": "ready",
+      "description": "当前完整版本，突出AI产品落地、Agent、RAG、Evals、增长与商业化。",
+      "file": "profiles/ai-product-general.json",
+      "prompt": "目标：AI产品经理通用方向。根据岗位与字段语义，综合突出Agent工作流、RAG、Evals、Badcase、0—1验证、用户旅程、产品机制、增长实验、商业化和数据闭环。"
+    },
+    {
+      "id": "ai_product_aigc",
+      "label": "AI产品—AIGC向",
+      "status": "ready",
+      "description": "突出AIGC创作工具、多模态内容工作流、创作者生态、生成质量评测与增长闭环。",
+      "file": "profiles/ai-product-aigc.json",
+      "prompt": "目标：AIGC方向AI产品经理。重点突出多模态内容生成、创作者工具、内容生产工作流、生成质量评估、Prompt/Seed机制、供给增长和产品化落地；不得虚构未写入主库的项目或指标。"
+    },
+    {
+      "id": "tech_sales",
+      "label": "科技销售",
+      "status": "draft",
+      "description": "方向已建立，解决方案销售、客户转化和商业表达内容待补充。",
+      "file": "profiles/tech-sales.json",
+      "prompt": "目标：科技销售方向。重点突出客户需求发现、解决方案表达、产品演示、商业转化、ROI、跨团队交付和英语沟通；不得虚构客户、合同、销售额或回款数据。"
+    }
+  ]
+}
