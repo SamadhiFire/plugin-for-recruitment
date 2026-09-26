@@ -69,6 +69,35 @@ test("generating a plan restores the old bootstrap behavior for empty repeated s
   assert.equal(calls.filter((call) => call.path === "/api/align-form").length, 1);
 });
 
+test("analysis shows missing resume records beside the plan instead of hiding them in diagnostics", async (t) => {
+  const { api, $ } = await panel(t, { request: async (path) => path === "/api/auto-plan" ? {
+    agentVersion: 2, profile: { id: "general" }, plan: [], additions: [], report: {},
+    coverage: [
+      { section: "education", total: 3, existing: 3, plannedNew: 0 },
+      { section: "experience", total: 3, existing: 0, plannedNew: 0 },
+      { section: "project", total: 3, existing: 1, plannedNew: 2 }
+    ]
+  } : undefined });
+  assert.equal(await api.buildAutoPlan(), true);
+  assert.match($("coverageSummary").textContent, /实习经历 0\/3 条/);
+  assert.match($("coverageSummary").textContent, /还有 3 条未纳入计划/);
+  assert.equal($("coverageSummary").hidden, false);
+  assert.equal($("coverageSummary").classList.contains("error"), true);
+});
+
+test("custom direction menu selects a profile and closes before showing its content", async (t) => {
+  const { $, choose } = await panel(t);
+  await choose("aigc");
+  $("directionTrigger").onclick();
+  assert.equal($("directionMenu").hidden, false);
+  assert.equal($("directionPicker").classList.contains("is-open"), true);
+  const general = Array.from($("directionMenu").querySelectorAll("button")).find((button) => button.textContent.includes("通用"));
+  await general.onclick();
+  assert.equal($("profileDirection").value, "general");
+  assert.equal($("directionMenu").hidden, true);
+  assert.equal($("directionTriggerText").textContent, "通用");
+});
+
 test("analysis progress follows actual stages and stops updating after completion", async (t) => {
   const readGate = deferred(), alignGate = deferred(), reviewGate = deferred();
   const readStarted = deferred(), alignStarted = deferred(), reviewStarted = deferred();
@@ -231,6 +260,21 @@ test("an old local server cannot bypass the internal review requirement", async 
   assert.equal(await api.buildAutoPlan(), false);
   assert.equal(api.state.plan.length, 0);
   assert.match($("planStatus").textContent, /本地服务仍是旧版/);
+});
+
+test("segmented date fields stop before planning against an old local server", async (t) => {
+  const { api, $, calls, messages } = await panel(t, {
+    message: async (message) => message.type === "RECRUITMENT_ANALYZE" ? { ok: true, page: {
+      url: "https://careers.example.test/apply", host: "careers.example.test", repeaters: [],
+      fields: [{ id: "year", key: "startYear", label: "开始年份", section: "education", recordIndex: 0, value: "" }]
+    } } : undefined,
+    request: async (path) => path === "/api/health" ? { ok: true, version: "0.9.3" } : undefined
+  });
+  assert.equal(await api.buildAutoPlan(), false);
+  assert.match($("planStatus").textContent, /本地服务版本过旧/);
+  assert.ok(calls.some((call) => call.path === "/api/health"));
+  assert.ok(!calls.some((call) => call.path === "/api/auto-plan"));
+  assert.ok(!messages.some((message) => message.type === "RECRUITMENT_ENSURE_RECORDS"));
 });
 
 test("missing per-field results are reported as failures, not assumed successes", async (t) => {

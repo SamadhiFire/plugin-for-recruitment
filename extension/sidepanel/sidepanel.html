@@ -24,11 +24,23 @@
           <button id="refreshPage" class="icon-button" disabled aria-label="重新读取当前页面" title="重新读取当前页面">↻</button>
         </div>
 
-        <label for="profileDirection">简历方向</label>
-        <select id="profileDirection">
+        <label for="directionTrigger">简历方向</label>
+        <select id="profileDirection" class="sr-only" tabindex="-1" aria-hidden="true">
           <option value="">请选择投递方向</option>
         </select>
+        <div id="directionPicker" class="direction-picker">
+          <button id="directionTrigger" class="direction-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="directionMenu">
+            <span id="directionTriggerText">请选择投递方向</span><span class="direction-chevron" aria-hidden="true"></span>
+          </button>
+          <div id="directionMenu" class="direction-menu" role="listbox" aria-label="选择简历方向" hidden></div>
+        </div>
         <p id="directionStatus" class="helper" hidden></p>
+        <section id="profileAdvice" class="profile-advice" aria-live="polite" hidden>
+          <p id="advicePositioning" class="advice-positioning"></p>
+          <p class="advice-label">适合投递</p>
+          <div id="adviceFits" class="advice-fits"></div>
+          <p id="adviceCaution" class="advice-caution"></p>
+        </section>
 
         <details class="instruction-disclosure">
           <summary>补充岗位要求 <span>可选</span></summary>
@@ -41,6 +53,7 @@
         </div>
         <p id="planStatus" class="helper" role="status" aria-live="polite"></p>
         <span id="planCount" class="status-pill" hidden></span>
+        <p id="coverageSummary" class="helper" hidden></p>
         <details id="planDiagnostics" class="diagnostics" hidden>
           <summary>分析详情</summary>
           <p id="planDiagnosticsText"></p>

@@ -25,7 +25,7 @@ async function loadEnv() {
 await loadEnv();
 
 const port = Number(process.env.PORT || 8787);
-const buildVersion = "0.9.3";
+const buildVersion = "0.9.11";
 const baseUrl = (process.env.DASHSCOPE_BASE_URL || "https://dashscope.aliyuncs.com/compatible-mode/v1").replace(/\/$/, "");
 let model = process.env.QWEN_MODEL || "qwen3.8-max";
 const rules = [
@@ -133,6 +133,10 @@ function equivalentValue(left, right, field = {}) {
   const a = comparable(left);
   const b = comparable(right);
   if (a === b) return true;
+  if (/^(start|end)(Year|Month)$/.test(field.key || "")) {
+    const datePart = (value) => String(value).trim().replace(/[年月]/g, "");
+    return /^\d{1,4}$/.test(datePart(a)) && /^\d{1,4}$/.test(datePart(b)) && Number(datePart(a)) === Number(datePart(b));
+  }
   // A month-only resume date may be displayed by a date picker with day 01.
   if (["start", "end", "birthDate"].includes(field.key)) {
     const date = (value) => String(value).trim().replace(/[./]/g, "-");
@@ -328,11 +332,11 @@ function profilePathFor(field, alignment) {
   const profileIndex = alignment.mapping?.[field.section]?.[field.recordIndex];
   if (profileIndex == null) return null;
   if (field.section === "education") {
-    const educationMap = { school: "school", college: "college", schoolLocation: "locationText", major: "major", majorCategory: "majorCategory", degree: "degree", educationType: "educationType", isHighestDegree: "isHighestDegree", exchange: "exchange", jointProgram: "jointProgram", rank: "rank", gpa: "gpa", advisor: "advisor", nationalKeyLab: "nationalKeyLab", laboratory: "laboratory", start: "start", end: "end" };
+    const educationMap = { school: "school", college: "college", schoolLocation: "locationText", major: "major", majorCategory: "majorCategory", degree: "degree", educationType: "educationType", isHighestDegree: "isHighestDegree", exchange: "exchange", jointProgram: "jointProgram", rank: "rank", gpa: "gpa", advisor: "advisor", nationalKeyLab: "nationalKeyLab", laboratory: "laboratory", start: "start", end: "end", startYear: "start", startMonth: "start", endYear: "end", endMonth: "end" };
     return educationMap[field.key] ? `education.${profileIndex}.${educationMap[field.key]}` : null;
   }
-  if (["experience", "work"].includes(field.section)) return ({ company: "company", role: "role", description: "bullets", start: "start", end: "end" }[field.key]) ? `experience.${profileIndex}.${({ company: "company", role: "role", description: "bullets", start: "start", end: "end" })[field.key]}` : null;
-  if (field.section === "project") return ({ projectName: "name", projectRole: "type", role: "type", description: "description", link: "url", start: "start", end: "end" }[field.key]) ? `projects.${profileIndex}.${({ projectName: "name", projectRole: "type", role: "type", description: "description", link: "url", start: "start", end: "end" })[field.key]}` : null;
+  if (["experience", "work"].includes(field.section)) return ({ company: "company", role: "role", description: "bullets", start: "start", end: "end", startYear: "start", startMonth: "start", endYear: "end", endMonth: "end" }[field.key]) ? `experience.${profileIndex}.${({ company: "company", role: "role", description: "bullets", start: "start", end: "end", startYear: "start", startMonth: "start", endYear: "end", endMonth: "end" })[field.key]}` : null;
+  if (field.section === "project") return ({ projectName: "name", projectRole: "type", role: "type", description: "description", link: "url", start: "start", end: "end", startYear: "start", startMonth: "start", endYear: "end", endMonth: "end" }[field.key]) ? `projects.${profileIndex}.${({ projectName: "name", projectRole: "type", role: "type", description: "description", link: "url", start: "start", end: "end", startYear: "start", startMonth: "start", endYear: "end", endMonth: "end" })[field.key]}` : null;
   if (field.section === "works" && field.key === "link") return "basics.portfolio";
   return null;
 }
@@ -345,6 +349,13 @@ function formattedValue(path, value, field) {
   }
   if (Array.isArray(value)) result = value.map((item, index) => `${index + 1}. ${item}`).join("\n");
   if (/\.(start|end)$/.test(path)) result = String(result).replaceAll(".", "-");
+  if (/^(start|end)(Year|Month)$/.test(field?.key || "")) {
+    const matched = String(result).match(/^(\d{4})[-./](\d{1,2})/);
+    if (matched) {
+      const part = field.key.endsWith("Year") ? matched[1] : String(Number(matched[2]));
+      result = (field.options || []).find((option) => Number(String(option).replace(/[年月]/g, "")) === Number(part)) || part;
+    }
+  }
   result = String(result ?? "");
   if (field?.maxLength && result.length > field.maxLength) {
     const clipped = result.slice(0, field.maxLength);
@@ -493,6 +504,39 @@ async function candidatePlan(payload, { askModel = async () => [], profileContex
   return { alignment, plan, warnings, profile: { id: entry.id, label: entry.label, status: entry.status, version: profile.meta?.version || 0 } };
 }
 
+function performSelfCheck(plan, alignment, profile, rawFields) {
+  const notices = [];
+  const recognizedSections = new Set((rawFields || []).map((f) => f.section));
+  for (const [section, spec] of Object.entries(sectionSpecs)) {
+    const records = profile?.[spec.list] || [];
+    const hasSectionOnPage = section === "experience"
+      ? (recognizedSections.has("experience") || recognizedSections.has("work"))
+      : recognizedSections.has(section);
+    if (records.length > 0 && !hasSectionOnPage) {
+      const sectionName = section === "education" ? "教育" : section === "experience" ? "实习/工作" : "项目";
+      notices.push(`简历包含 ${records.length} 条${sectionName}经历，但当前页面未识别到对应区块，可能在其他折叠页、子页面或分步向导中。`);
+    }
+  }
+  const pendingCount = (plan || []).filter((p) => p.needsConfirmation).length;
+  if ((plan || []).length >= 6 && (pendingCount / plan.length) > 0.6) {
+    notices.push(`当前页面有超过 60% 字段未能高置信自动映射，建议核对“待补充”列表后手动调整。`);
+  }
+  for (const [section, spec] of Object.entries(sectionSpecs)) {
+    const mapped = Object.entries(alignment?.mapping?.[section] || {});
+    for (const [pageIdx, profIdx] of mapped) {
+      const cardExists = (rawFields || []).some((f) => f.section === section && f.recordIndex === Number(pageIdx));
+      if (!cardExists) continue;
+      const hasIdentity = (rawFields || []).some((f) => f.section === section && f.recordIndex === Number(pageIdx) && f.key === spec.identityKey);
+      if (!hasIdentity && profile?.[spec.list]?.[profIdx]) {
+        const name = profile[spec.list][profIdx][spec.profileIdentity];
+        const fieldName = spec.identityKey === "school" ? "学校" : spec.identityKey === "company" ? "公司" : "项目名";
+        notices.push(`“${name}”已对齐，但未在对应卡片中识别到${fieldName}输入框，请留意识别准确性。`);
+      }
+    }
+  }
+  return notices;
+}
+
 async function autoPlan(payload, { askModel = qwenJson } = {}) {
   const context = await getProfileContext(payload.profileId, { requireReady: true });
   const alignment = buildAlignment(payload.page?.fields || [], context.profile);
@@ -512,8 +556,9 @@ async function autoPlan(payload, { askModel = qwenJson } = {}) {
   const coverage = Object.entries(sectionSpecs).map(([section, spec]) => ({ section, total: context.profile[spec.list]?.length || 0,
     existing: alignment.recordActions.filter((item) => item.section === section && item.mode !== "add").length,
     plannedNew: expanded.additions.filter((item) => item.section === section).reduce((sum, item) => sum + item.desired - item.fromCount, 0) }));
+  const diagnostics = performSelfCheck(result.plan, proposals.alignment, context.profile, payload.page?.fields || []);
   return { ...result, alignment: proposals.alignment, additions: expanded.additions, recordActions: alignment.recordActions, recordIssues: alignment.recordIssues, coverage, profile: proposals.profile,
-    warnings: [...expanded.warnings, ...result.warnings], agentVersion: 2 };
+    warnings: [...expanded.warnings, ...result.warnings], diagnostics, agentVersion: 2 };
 }
 function validateProfile(profile) {
   if (!profile || typeof profile !== "object" || Array.isArray(profile)) throw new Error("主库必须是 JSON 对象");
@@ -592,7 +637,7 @@ async function aiSuggestMappings(payload) {
   });
 }
 
-export { autoPlan, candidatePlan, buildAlignment, getProfileCatalog, getProfileContext, profilePathFor };
+export { autoPlan, candidatePlan, buildAlignment, getProfileCatalog, getProfileContext, profilePathFor, performSelfCheck };
 
 if (resolve(process.argv[1] || "") === fileURLToPath(import.meta.url)) createServer(async (request, response) => {
   try {
@@ -603,7 +648,7 @@ if (resolve(process.argv[1] || "") === fileURLToPath(import.meta.url)) createSer
     if (request.method === "PUT" && url.pathname === "/api/config") return send(request, response, 200, await saveConfig(await readBody(request)));
     if (request.method === "GET" && url.pathname === "/api/profiles") {
       const catalog = await getProfileCatalog();
-      return send(request, response, 200, { profiles: catalog.profiles.map(({ id, label, status, description }) => ({ id, label, status, description })) });
+      return send(request, response, 200, { profiles: catalog.profiles.map(({ id, label, status, description, advice }) => ({ id, label, status, description, advice })) });
     }
     if (request.method === "GET" && url.pathname === "/api/profile") {
       const context = await getProfileContext(url.searchParams.get("profileId"));

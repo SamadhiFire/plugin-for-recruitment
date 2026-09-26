@@ -17,6 +17,47 @@ test("scan ignores hidden templates, disabled fieldsets and non-resume controls"
   assert.deepEqual(plain(api.discover().map(({ domId, label, key }) => ({ domId, label, key }))), [{ domId: "name", label: "姓名", key: "name" }]);
 });
 
+test("Didi-style field labels do not become section headings or selected-value labels", (t) => {
+  const { api } = setup(t, `<form>
+    <div class="section-title">个人信息</div>
+    <div class="form-item"><div class="form-item-label">工作经验</div><div class="form-item-control"><input id="workYears" placeholder="请选择"></div></div>
+    <div class="form-item"><div class="form-item-label">最高学历</div><div class="form-item-control"><div class="select-selector"><span class="select-selection-item">硕士</span><input id="highestDegree" aria-label="硕士" readonly></div></div></div>
+    <div class="form-item"><div class="form-item-label">所在地</div><div class="form-item-control"><input id="city" value="广东省-深圳市"></div></div>
+    <div class="section-title">求职意向</div>
+    <div class="form-item"><div class="form-item-label">期望薪资</div><div class="form-item-control"><input id="salary"></div></div>
+    <div class="section-title">工作经历</div>
+    <div class="form-item"><div class="form-item-label">公司名称</div><div class="form-item-control"><input id="company"></div></div>
+  </form>`);
+  const byId = Object.fromEntries(api.discover().map((field) => [field.domId, field]));
+  assert.equal(byId.workYears.label, "工作经验");
+  assert.equal(byId.workYears.section, "basics");
+  assert.equal(byId.workYears.recordIndex, null);
+  assert.equal(byId.highestDegree.label, "最高学历");
+  assert.equal(byId.highestDegree.value, "硕士");
+  assert.equal(byId.highestDegree.section, "basics");
+  assert.equal(byId.city.section, "basics");
+  assert.equal(byId.salary.section, "other");
+  assert.equal(byId.company.section, "experience");
+});
+
+test("a two-input 起止时间 row scans as start and end in one record", (t) => {
+  const { api } = setup(t, `<h2>实习经历</h2><div class="form-item"><div class="form-item-label">起止时间</div>
+    <div class="form-item-control"><input id="from"><input id="to"></div></div>`);
+  const fields = api.discover();
+  assert.deepEqual(Array.from(fields, (field) => field.key), ["start", "end"]);
+  assert.deepEqual(Array.from(fields, (field) => field.recordIndex), [0, 0]);
+});
+
+test("selected years and months are values rather than field names", (t) => {
+  const { api } = setup(t, `<h2>教育经历</h2><div class="form-item"><div class="form-item-label">起止时间</div>
+    <div class="form-item-control"><select><option selected>2018年</option></select><select><option selected>9月</option></select>
+    <select><option selected>2022年</option></select><select><option selected>7月</option></select></div></div>`);
+  const fields = api.discover();
+  assert.deepEqual(Array.from(fields, (field) => field.label), Array(4).fill("起止时间"));
+  assert.deepEqual(Array.from(fields, (field) => field.key), ["startYear", "startMonth", "endYear", "endMonth"]);
+  assert.deepEqual(Array.from(fields, (field) => field.value), ["2018年", "9月", "2022年", "7月"]);
+});
+
 test("readonly custom selects and input-free comboboxes remain discoverable", (t) => {
   const { api } = setup(t, `<h2>教育经历</h2>
     <div class="ant-select"><input readonly aria-label="学历" aria-required="true"><span class="ant-select-selection-item">硕士</span></div>

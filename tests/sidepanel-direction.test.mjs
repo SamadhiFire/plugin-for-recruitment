@@ -7,6 +7,9 @@ const script = await readFile(new URL("../extension/sidepanel/sidepanel.js", imp
 
 test("direction is a visible required gate before refresh and plan generation", () => {
   assert.match(html, /id="profileDirection"/);
+  assert.match(html, /id="profileAdvice"/);
+  assert.match(html, /id="directionTrigger"/);
+  assert.match(html, /id="directionMenu"/);
   assert.match(html, /id="refreshPage"[^>]*disabled/);
   assert.match(html, /id="buildPlan"[^>]*disabled/);
   assert.doesNotMatch(html, /id="variant"/);

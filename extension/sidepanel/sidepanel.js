@@ -18,6 +18,40 @@ function contextKeyForTab(tab) {
 }
 function selectedProfileMeta() { return state.profiles.find((profile) => profile.id === state.profileId) || null; }
 function directionReady() { return selectedProfileMeta()?.status === "ready"; }
+function setDirectionMenu(open) {
+  const picker = $("directionPicker");
+  picker.classList.toggle("is-open", open);
+  $("directionMenu").hidden = !open;
+  $("directionTrigger").setAttribute("aria-expanded", String(open));
+}
+function renderDirectionPicker() {
+  const meta = selectedProfileMeta();
+  const trigger = $("directionTrigger");
+  trigger.disabled = state.executing;
+  $("directionTriggerText").textContent = meta?.label || "请选择投递方向";
+  const menu = $("directionMenu");
+  menu.replaceChildren(...state.profiles.map((profile) => {
+    const option = document.createElement("button");
+    option.type = "button"; option.className = "direction-option"; option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", String(profile.id === state.profileId));
+    const label = document.createElement("span"); label.textContent = profile.label;
+    const strategy = document.createElement("span"); strategy.className = "direction-option-meta";
+    strategy.textContent = profile.advice?.positioning?.split("：")[0] || (profile.status === "ready" ? "已就绪" : "待补充");
+    option.append(label, strategy);
+    option.onclick = async () => { $("profileDirection").value = profile.id; setDirectionMenu(false); await chooseProfile(profile.id); };
+    return option;
+  }));
+}
+function renderProfileAdvice() {
+  const advice = selectedProfileMeta()?.advice;
+  $("profileAdvice").hidden = !advice;
+  if (!advice) return;
+  $("advicePositioning").textContent = advice.positioning || "";
+  $("adviceFits").replaceChildren(...(advice.fit || []).map((item) => {
+    const chip = document.createElement("span"); chip.textContent = item; return chip;
+  }));
+  $("adviceCaution").textContent = advice.caution || "";
+}
 function originPattern(tab) {
   try { const url = new URL(tab?.url || ""); return /^https?:$/.test(url.protocol) ? `${url.protocol}//${url.host}/*` : ""; }
   catch { return ""; }
@@ -36,6 +70,7 @@ function resetPageState(message = "正在读取当前页面…") {
   $("fields").replaceChildren(); $("plan").replaceChildren();
   $("pageInfo").textContent = message; $("planStatus").textContent = "";
   $("planCount").textContent = ""; $("planCount").hidden = true; $("executePlan").disabled = true;
+  $("coverageSummary").textContent = ""; $("coverageSummary").hidden = true;
   $("fillBar").hidden = true; $("planDiagnostics").hidden = true; $("planDiagnostics").open = false;
   $("planDiagnosticsText").textContent = "";
 }
@@ -54,16 +89,19 @@ function updateDirectionUI() {
   $("buildPlan").textContent = state.building ? "正在分析…" : state.plan.length ? "重新分析" : "分析当前页面";
   $("plan").setAttribute("aria-busy", String(state.building || state.executing));
   $("profileDirection").disabled = state.executing;
+  renderDirectionPicker();
   $("compose").disabled = !ready;
   $("reloadProfile").disabled = !selected;
   $("profileEditor").disabled = !selected;
   $("saveProfile").disabled = !selected;
   $("directionStatus").hidden = !selected || ready;
   $("directionStatus").textContent = selected && !ready ? "此方向的简历待补充" : "";
+  renderProfileAdvice();
 }
 async function clearDirection(message = "请先选择当前公司的投递方向。") {
   state.profileId = ""; state.profileMeta = null; state.profile = null; state.directionContextKey = "";
   $("profileDirection").value = ""; $("profileEditor").value = ""; $("profileStatus").textContent = "";
+  setDirectionMenu(false);
   resetPageState(message); updateDirectionUI();
 }
 async function sendToPage(type, payload = {}, targetTab = null) {
@@ -247,6 +285,14 @@ async function buildAutoPlan() {
     await assertCurrent(context);
     state.page = analyzed.page;
     let page = analyzed.page;
+    if (page.fields?.some((field) => /^(start|end)(Year|Month)$/.test(field.key || ""))) {
+      const health = await request("/api/health");
+      const version = String(health.version || "").split(".").map(Number);
+      if (version.length !== 3 || version.some((part) => !Number.isInteger(part))
+        || version[0] < 0 || (version[0] === 0 && (version[1] < 9 || (version[1] === 9 && version[2] < 11)))) {
+        throw new Error("本地服务版本过旧，请重启 0.9.11 助手后再分析拆分的年月字段");
+      }
+    }
     // Empty repeatable sections have an add button but no field template. The
     // older workflow correctly created the missing blank rows first and then
     // scanned their real schema. Restore that behavior: the user prefers extra
@@ -260,8 +306,10 @@ async function buildAutoPlan() {
       const repeater = repeaters.get(section);
       return repeater && desired > (repeater.currentCount || 0);
     }));
-    if (Object.keys(targets).length) {
-      await sendToPage("RECRUITMENT_ENSURE_RECORDS", { targets }, tab);
+    const expansionWarnings = [];
+    for (const [section, desired] of Object.entries(targets)) {
+      try { await sendToPage("RECRUITMENT_ENSURE_RECORDS", { targets: { [section]: desired } }, tab); }
+      catch (error) { expansionWarnings.push(`${sectionLabels[section] || section}未能展开：${error.message}`); }
       await assertCurrent(context);
       analyzed = await sendToPage("RECRUITMENT_ANALYZE", {}, tab);
       await assertCurrent(context);
@@ -280,13 +328,25 @@ async function buildAutoPlan() {
     const confirms = state.plan.filter((item) => item.needsConfirmation).length;
     const ready = state.plan.length - confirms;
     const newRecords = new Set(state.plan.filter((item) => item.virtual && !item.needsConfirmation).map((item) => `${item.section}:${item.recordIndex}`)).size;
+    const coverage = result.coverage || [];
+    const gaps = coverage.filter((item) => item.total > item.existing + item.plannedNew);
+    const coverageSummary = $("coverageSummary");
+    coverageSummary.hidden = !coverage.length && !expansionWarnings.length;
+    coverageSummary.classList.toggle("error", Boolean(gaps.length || expansionWarnings.length));
+    coverageSummary.textContent = [
+      `本页识别 ${page.fields?.length || 0} 个字段；${coverage.map((item) => `${sectionLabels[item.section] || item.section} ${item.existing + item.plannedNew}/${item.total} 条`).join(" · ")}`,
+      ...gaps.map((item) => `${sectionLabels[item.section] || item.section}还有 ${item.total - item.existing - item.plannedNew} 条未纳入计划，请检查添加入口或手动展开后重新分析。`),
+      ...expansionWarnings
+    ].filter(Boolean).join("\n");
     status.textContent = (result.warnings || []).some((warning) => /超时|不可用|失败|异常/.test(warning))
       ? "部分内容需补充，已准备的内容可先填入。" : state.plan.length ? "" : "检查完成，无需补填。";
     $("planDiagnosticsText").textContent = [
       `已准备 ${ready} 项，待补充 ${confirms} 项。`,
       `拟新增 ${newRecords} 条经历，更新 ${result.report?.replacements || 0} 个字段。`,
       result.report?.locallyVerified ? `${result.report.locallyVerified} 项通过本地校验（含已填写项）。` : "",
-      ...(result.warnings || [])
+      ...(result.diagnostics || []),
+      ...(result.warnings || []),
+      ...expansionWarnings
     ].filter(Boolean).join("\n");
     $("planDiagnostics").hidden = false;
     return true;
@@ -360,6 +420,8 @@ async function loadProfiles() {
     const suffix = profile.status === "ready" ? "" : "（待补充）";
     select.append(new Option(`${profile.label}${suffix}`, profile.id));
   }
+  renderDirectionPicker();
+  renderProfileAdvice();
 }
 async function loadConfig() {
   const config = await request("/api/config");
@@ -400,8 +462,7 @@ $("buildPlan").onclick = buildAutoPlan;
 $("executePlan").onclick = executeAutoPlan;
 $("rememberPage").onclick = rememberCurrentPage;
 $("reloadProfile").onclick = loadProfile;
-$("profileDirection").onchange = async () => {
-  const profileId = $("profileDirection").value;
+async function chooseProfile(profileId) {
   if (!profileId) return clearDirection();
   resetPageState("正在切换方向…");
   const revision = state.revision;
@@ -415,7 +476,13 @@ $("profileDirection").onchange = async () => {
   updateDirectionUI();
   try { await loadProfile(); }
   catch (error) { $("profileStatus").textContent = `读取失败：${error.message}`; $("profileStatus").className = "error"; }
+}
+$("profileDirection").onchange = async () => chooseProfile($("profileDirection").value);
+$("directionTrigger").onclick = () => {
+  if (!state.executing) setDirectionMenu(!$("directionPicker").classList.contains("is-open"));
 };
+document.addEventListener("click", (event) => { if (!$("directionPicker").contains(event.target)) setDirectionMenu(false); });
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") setDirectionMenu(false); });
 $("saveProfile").onclick = async () => {
   const context = operationContext();
   try {

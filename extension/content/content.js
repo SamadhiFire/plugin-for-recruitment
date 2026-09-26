@@ -3,11 +3,74 @@
   window.__recruitmentCopilotV080 = true;
 
   const FIELD_SELECTOR = "input:not([type=hidden]):not([type=file]):not([type=submit]):not([type=button]):not([type=reset]):not([type=image]):not([type=password]):not([disabled]), textarea:not([disabled]), select:not([disabled]), [contenteditable=true], [role=textbox]:not(input):not(textarea), [role=combobox]:not(input):not(select)";
-  const SECTION_NAMES = ["个人信息", "基本信息", "基础信息", "个人资料", "教育经历", "教育背景", "学习经历", "实习经历", "工作经历", "工作经验", "工作/实习经历", "校园经历", "校园实践", "社团经历", "项目经历", "项目经验", "实践经历", "AI应用技能", "AI能力", "AI工具与模型", "公司内部亲属关系", "英语能力", "其他外语能力", "计算机能力", "专业技能", "获奖情况", "荣誉奖励", "证书", "作品", "语言能力", "语言/证书/技能", "个人特长", "兴趣爱好", "自我评价", "自我介绍", "个人优势", "其他技能/证书"];
+  const SECTION_NAMES = ["个人信息", "基本信息", "基础信息", "个人资料", "求职意向", "教育经历", "教育背景", "学习经历", "实习经历", "工作经历", "工作经验", "工作/实习经历", "校园经历", "校园实践", "社团经历", "项目经历", "项目经验", "实践经历", "AI应用技能", "AI能力", "AI工具与模型", "公司内部亲属关系", "英语能力", "其他外语能力", "计算机能力", "专业技能", "获奖情况", "荣誉奖励", "证书", "作品", "语言能力", "语言/证书/技能", "个人特长", "兴趣爱好", "自我评价", "自我介绍", "个人优势", "其他技能/证书"];
+  const SECTION_PATTERNS = [
+    { section: "skills", pattern: /AI应用技能|AI能力|AI工具|AI协作|计算机能力|专业技能|证书|其他技能|技能|skills?|certifications?/i },
+    { section: "summary", pattern: /个人特长|兴趣爱好|自我评价|自我介绍|个人简介|个人优势|核心竞争力|AIGC.*产品经理|summary|about\s*me|self-evaluation|interests?/i },
+    { section: "experience", pattern: /工作\/实习|实习经历|实习经验|实习|internship|internships/i },
+    { section: "work", pattern: /全职工作|正式工作|工作经历|工作经验|工作履历|任职经历|work\s*experience|employment\s*history|employment/i },
+    { section: "education", pattern: /教育经历|教育背景|学习经历|教育信息|学历信息|education|academic\s*background|academic/i },
+    { section: "campus", pattern: /校园经历|校园实践|社团经历|学生工作|campus\s*experience/i },
+    { section: "project", pattern: /项目经历|项目经验|实践经历|项目|projects?|project\s*experience/i },
+    { section: "works", pattern: /作品|作品集|portfolio/i },
+    { section: "language", pattern: /英语能力|其他外语能力|语言能力|语言\/证书\/技能|外语|languages?/i },
+    { section: "other", pattern: /亲属|获奖|荣誉|求职意向|求职期望|期望职位|意向职位|awards?|honors?|job\s*intention|preferences?/i },
+    { section: "basics", pattern: /个人信息|个人资料|基本信息|基础信息|基本资料|basic\s*info|personal\s*information|personal\s*details|contact\s*info/i }
+  ];
   let highlighted;
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const clean = (value = "") => String(value).replace(/\s+/g, " ").trim();
   const norm = (value = "") => clean(value).toLowerCase().replace(/[：:*＊（）()【】\[\]·、，,。.!！?？\s]/g, "");
+
+  function querySelectorAllDeep(selector, root = document) {
+    const list = [...root.querySelectorAll(selector)];
+    try {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+      let node;
+      while ((node = walker.nextNode())) {
+        if (node.shadowRoot) list.push(...querySelectorAllDeep(selector, node.shadowRoot));
+      }
+    } catch {
+      const all = root.querySelectorAll("*");
+      for (const el of all) {
+        if (el.shadowRoot) list.push(...querySelectorAllDeep(selector, el.shadowRoot));
+      }
+    }
+    return list;
+  }
+
+  function findElementByRecruitmentAttr(attr, val, root = document) {
+    if (!val) return null;
+    const direct = root.querySelector(`[${attr}="${CSS.escape(val)}"]`);
+    if (direct) return direct;
+    try {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, null);
+      let node;
+      while ((node = walker.nextNode())) {
+        if (node.shadowRoot) {
+          const found = findElementByRecruitmentAttr(attr, val, node.shadowRoot);
+          if (found) return found;
+        }
+      }
+    } catch {
+      const all = root.querySelectorAll("*");
+      for (const el of all) {
+        if (el.shadowRoot) {
+          const found = findElementByRecruitmentAttr(attr, val, el.shadowRoot);
+          if (found) return found;
+        }
+      }
+    }
+    return null;
+  }
+
+  function findRecruitmentElement(id) {
+    return findElementByRecruitmentAttr("data-recruitment-id", id);
+  }
+
+  function findRecruitmentAddButton(addId) {
+    return findElementByRecruitmentAttr("data-recruitment-add-id", addId);
+  }
 
   function directText(element) {
     return clean([...element.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE).map((node) => node.textContent).join(" "));
@@ -25,56 +88,87 @@
     const label = id && document.querySelector(`label[for="${CSS.escape(id)}"]`);
     const labelled = element.getAttribute("aria-labelledby")?.split(/\s+/).map((key) => document.getElementById(key)?.textContent || "").join(" ");
     if (label?.textContent || labelled) return clean(label?.textContent || labelled);
-    const ariaLabel = element.getAttribute("aria-label");
-    if (ariaLabel) return clean(ariaLabel);
     const wrappedLabel = element.closest("label");
     if (wrappedLabel && !["radio", "checkbox"].includes(element.type)) {
       const copy = wrappedLabel.cloneNode(true);
       copy.querySelectorAll("input,select,textarea,[role=combobox]").forEach((node) => node.remove());
-      if (clean(copy.textContent)) return clean(copy.textContent);
+      const wrappedText = clean(copy.textContent);
+      // ATS select widgets wrap the current choice (e.g. "2027") in a label.
+      // That is a value, not the field title above the date row.
+      if (wrappedText && norm(wrappedText) !== norm(fieldValue(element))
+        && !/^\d+$/.test(wrappedText)) return wrappedText;
     }
     const formilyLabel = element.closest(".ud-formily-item")?.querySelector(".ud-formily-item-label,.ud-formily-item-label-content");
     if (formilyLabel?.textContent) return clean(formilyLabel.textContent);
     let cursor = element;
+    let fallbackText = "";
     for (let depth = 0; depth < 9 && cursor; depth += 1, cursor = cursor.parentElement) {
       const className = String(cursor.className || "");
       if (/form-item|formily-item|field|control/i.test(className)) {
         const candidates = [...cursor.querySelectorAll("label,[class*=label],[class*=title],[class*=filedName]")]
-          .map((node) => clean(node.textContent)).filter((text) => text && text.length < 80);
+          .filter((node) => !node.contains(element) && !node.closest("[role=listbox],[role=option],[class*=select-selector],[class*=dropdown]"))
+          .filter((node) => Boolean(node.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING))
+          .map((node) => clean(node.textContent)).filter((text) => text && text.length < 80 && norm(text) !== norm(fieldValue(element)));
         if (candidates.length) return candidates[0];
         const own = directText(cursor);
-        if (own && own.length < 80) return own;
+        if (!fallbackText && !/control|select|picker|dropdown/i.test(className)
+          && own && own.length < 80 && norm(own) !== norm(fieldValue(element))) fallbackText = own;
       }
     }
     const described = element.getAttribute("aria-describedby")?.split(/\s+/).map((key) => document.getElementById(key)?.textContent || "").join(" ");
-    return clean(element.getAttribute("aria-label") || described || element.getAttribute("placeholder") || element.name || element.id || "");
+    const ariaLabel = element.getAttribute("aria-label") || "";
+    return clean((ariaLabel && norm(ariaLabel) !== norm(fieldValue(element)) ? ariaLabel : "")
+      || fallbackText || described || element.getAttribute("placeholder") || element.name || element.id || "");
   }
 
   function headingItems() {
     return [...document.querySelectorAll("h1,h2,h3,h4,h5,h6,legend,dt,p,div,[role=heading],.module-title,.applyFormModuleWrapper-title,[class*=title],[class*=Title]")]
       .filter((node) => !node.querySelector(FIELD_SELECTOR))
-      .map((node) => ({ node, text: clean(node.textContent) }))
-      .filter((item) => item.text.length <= 60 && SECTION_NAMES.some((name) => item.text === name || item.text.includes(name)));
+      .filter((node) => !node.closest("label,nav,aside,[role=navigation],[class*=sidebar],[class*=sideBar],[class*=side-bar],[class*=form-item],[class*=formItem],[class*=FormItem],[class*=field-item],[class*=fieldItem],.ud-formily-item"))
+      .map((node) => {
+        // Some ATS pages put the title, add button and a long warning in the
+        // same block. Read the title element itself before applying the length
+        // limit, or the entire internship section disappears from the scan.
+        const className = String(node.className || "");
+        const title = /blockTitle|sectionHeader|section-header/i.test(className)
+          ? node.querySelector(":scope > div > span:first-child, :scope > span:first-child, :scope > div > h2, :scope > h2")
+          : null;
+        return { node, text: clean(title?.textContent || node.textContent) };
+      })
+      .filter((item) => item.text.length <= 60 && (SECTION_NAMES.includes(item.text)
+        || ((/^(H[1-6]|LEGEND|DT)$/.test(item.node.tagName) || item.node.getAttribute("role") === "heading" || /title|heading/i.test(String(item.node.className || "")))
+          && (SECTION_NAMES.some((name) => item.text.startsWith(name)) || SECTION_PATTERNS.some((p) => p.pattern.test(item.text))))));
   }
 
   function sectionFromText(text, headings = null) {
-    if (/AI应用技能|AI能力|AI工具|AI协作/.test(text)) return "skills";
-    if (/个人特长|兴趣爱好/.test(text)) return "summary";
-    if (/工作\/实习|实习/.test(text)) return "experience";
-    if (/工作经历|工作经验/.test(text)) {
-      const hasSeparateInternshipSection = (headings || headingItems()).some((item) => /实习经历|实习经验/.test(item.text));
+    if (!text) return "other";
+    if (/AI应用技能|AI能力|AI工具|AI协作/i.test(text)) return "skills";
+    if (/个人特长|兴趣爱好/i.test(text)) return "summary";
+    if (/工作\/实习|实习/i.test(text)) return "experience";
+    if (/工作经历|工作经验|工作履历|任职经历/i.test(text)) {
+      const hasSeparateInternshipSection = (headings || headingItems()).some((item) => /实习经历|实习经验|实习|internship/i.test(item.text));
       return location.hostname.includes("vivo.com") || !hasSeparateInternshipSection ? "experience" : "work";
     }
-    if (/教育|学习经历/.test(text)) return "education";
-    if (/校园经历|校园实践|社团经历/.test(text)) return "campus";
-    if (/项目|实践经历/.test(text)) return "project";
-    if (/作品/.test(text)) return "works";
-    if (/英语能力|其他外语能力|语言/.test(text)) return "language";
-    if (/计算机能力|专业技能|证书/.test(text)) return "skills";
-    if (/亲属|获奖|荣誉/.test(text)) return "other";
-    if (/个人信息|个人资料|基本|基础/.test(text)) return "basics";
-    if (/自我评价|自我介绍|个人简介|个人优势|核心竞争力|AIGC.*产品经理/.test(text)) return "summary";
-    if (/技能/.test(text)) return "skills";
+    if (/教育|学习经历|学历/i.test(text)) return "education";
+    if (/校园经历|校园实践|社团经历/i.test(text)) return "campus";
+    if (/项目|实践经历/i.test(text)) return "project";
+    if (/作品/i.test(text)) return "works";
+    if (/英语能力|其他外语能力|语言/i.test(text)) return "language";
+    if (/计算机能力|专业技能|证书/i.test(text)) return "skills";
+    if (/亲属|获奖|荣誉/i.test(text)) return "other";
+    if (/个人信息|个人资料|基本|基础/i.test(text)) return "basics";
+    if (/求职意向|求职期望/i.test(text)) return "other";
+    if (/自我评价|自我介绍|个人简介|个人优势|核心竞争力|AIGC.*产品经理/i.test(text)) return "summary";
+    if (/技能/i.test(text)) return "skills";
+    for (const { section, pattern } of SECTION_PATTERNS) {
+      if (pattern.test(text)) {
+        if (section === "work") {
+          const hasSeparateInternship = (headings || headingItems()).some((item) => /internship|实习/i.test(item.text));
+          return location.hostname.includes("vivo.com") || !hasSeparateInternship ? "experience" : "work";
+        }
+        return section;
+      }
+    }
     return "other";
   }
 
@@ -91,6 +185,28 @@
     if (dateRange) {
       const inputs = [...dateRange.querySelectorAll("input")];
       return inputs.indexOf(element) === 0 ? "start" : "end";
+    }
+    const dateName = `${parsed.rawKey || ""} ${element.id || ""} ${element.name || ""}`;
+    if (/(start|begin|end).*year/i.test(dateName)) return /end/i.test(dateName) ? "endYear" : "startYear";
+    if (/(start|begin|end).*month/i.test(dateName)) return /end/i.test(dateName) ? "endMonth" : "startMonth";
+    // Some recruitment forms render a single labelled date range as two
+    // controls, or as four separate year/month controls. Give each control a
+    // distinct meaning before the generic "起止时间" fallback is considered.
+    const dateRow = element.closest(".form-item,.ant-form-item,.el-form-item,[class*=form-item],[class*=formItem],[class*=FormItem],[class*=apply-field],.ud-formily-item");
+    const dateLabel = dateRow && /起止时间|起止日期|就读时间|开始时间|起始时间|结束时间|毕业时间|入学时间/.test(label)
+      ? label : clean(dateRow?.textContent || "").slice(0, 100);
+    if (dateRow && /起止时间|起止日期|就读时间|开始时间|起始时间|结束时间|毕业时间|入学时间/.test(dateLabel)) {
+      const controls = [...dateRow.querySelectorAll(FIELD_SELECTOR)].filter((candidate) =>
+        candidate.type !== "checkbox" && !(candidate.getAttribute("role") === "combobox" && candidate.querySelector("input,select")));
+      const index = controls.indexOf(element);
+      if (index >= 0 && controls.length === 2) {
+        if (/开始|起始|入学/.test(dateLabel)) return index === 0 ? "startYear" : "startMonth";
+        if (/结束|毕业/.test(dateLabel)) return index === 0 ? "endYear" : "endMonth";
+        return index === 0 ? "start" : "end";
+      }
+      if (index >= 0 && controls.length === 4 && /起止|就读/.test(dateLabel)) {
+        return ["startYear", "startMonth", "endYear", "endMonth"][index];
+      }
     }
     const source = norm(`${parsed.rawKey || ""} ${element.id || ""} ${element.name || ""} ${label}`);
     if (location.hostname.includes("join.qq.com") && /选择日期/.test(label)) {
@@ -109,9 +225,9 @@
     // for school/company/project names. Prefer the visible field label over
     // that generic id so an education identity cannot become applicant name.
     if (/学校所在地|院校所在地|目前就读地|就读城市/.test(source)) return "schoolLocation";
-    if (/school|学校|院校|毕业院校/.test(source)) return "school";
-    if (/所在院系|研究所|学院|院系|college|department/.test(source)) return "college";
-    if (((/firstname|fullname|姓名|^name$/.test(source)) || element.id === "name") && !/学校|院校|项目|公司|单位|学院|院系/.test(source)) return "name";
+    if (/school|学校|院校|毕业院校|毕业学校|就读学校|就读院校|院校名称|毕业院校名称|最高学历学校|institution|university/.test(source)) return "school";
+    if (/所在院系|研究所|学院|院系|二级学院|所在学院|所在院系所|college|department|faculty/.test(source)) return "college";
+    if (((/firstname|fullname|姓名|^name$/.test(source)) || element.id === "name") && !/学校|院校|项目|公司|单位|学院|院系|employer|organization|school|university/.test(source)) return "name";
     if (/国家区号|手机区号|电话区号|countrycode/.test(source)) return "phoneCountry";
     if (/mobile|phone|手机|联系电话|联系方式/.test(source)) return /^\d{6,}$/.test(String(element.value || "").replace(/\D/g, "")) ? "phoneNumber" : "phone";
     if (/email|邮箱/.test(source)) return "email";
@@ -131,25 +247,25 @@
     if (/兴趣爱好|兴趣与爱好|个人爱好/.test(source)) return "hobbies";
     if (/自我评价|个人评价|综合评价|自我鉴定/.test(source)) return "selfEvaluation";
     if (/专业类别|专业大类/.test(source)) return "majorCategory";
-    if (/fieldofstudy|major|专业/.test(source)) return "major";
+    if (/fieldofstudy|major|专业|主修专业|所学专业|专业名称|majorname/.test(source) && !/排名/.test(source)) return "major";
     if (/educationtype|学历类型|受教育类型|培养方式|学习形式/.test(source)) return "educationType";
     if (/是否最高学历/.test(source)) return "isHighestDegree";
-    if (/degree|学历|学位/.test(source) && !/类型/.test(source)) return "degree";
+    if (/degree|学历|学位|最高学历|当前学历|学历层次|文化程度|degreelevel|educationlevel/.test(source) && !/类型/.test(source)) return "degree";
     if (/联合办学|jointprogram/.test(source)) return "jointProgram";
     if (/交流学习|exchange/.test(source)) return "exchange";
-    if (/gpa|cgpa|绩点/.test(source) && !/满绩/.test(source)) return "gpa";
-    if (/年级成绩排名|成绩排名|ranking/.test(source)) return "rank";
+    if (/gpa|cgpa|绩点|平均绩点/.test(source) && !/满绩/.test(source)) return "gpa";
+    if (/年级成绩排名|成绩排名|ranking|年级排名|班级排名|专业排名/.test(source)) return "rank";
     if (/是否国家重点实验室|国家重点实验室/.test(source)) return "nationalKeyLab";
     if (/实验室/.test(source)) return "laboratory";
-    if (/company|公司|单位名称|实习单位|工作单位|任职单位|雇主/.test(source)) return "company";
-    if (/projectname|项目名称|项目名/.test(source)) return "projectName";
-    if (/projectrole|项目角色|项目中担任的角色|担任角色/.test(source)) return "projectRole";
-    if (/position|title|职位|岗位|职务|任职角色/.test(source)) return "role";
+    if (/company|公司|单位名称|实习单位|工作单位|任职单位|雇主|就职公司|所属公司|企业名称|公司名称|employer|organization/.test(source)) return "company";
+    if (/projectname|项目名称|项目名|projecttitle/.test(source)) return "projectName";
+    if (/projectrole|项目角色|项目中担任的角色|担任角色|项目中担任职务/.test(source)) return "projectRole";
+    if (/position|title|职位|岗位|职务|任职角色|担任职务|任职岗位|岗位名称|职位名称|jobtitle|jobposition/.test(source)) return "role";
     if (/link|url|链接|作品集/.test(source)) return "link";
-    if (/description|desc|描述|职责|内容|主要工作|工作成果|项目介绍/.test(source)) return "description";
-    if (/startendtime|起止时间|daterange/.test(source)) return "dateRange";
-    if (/start|开始时间|开始日期|起始时间|起始日期|入学时间|入职时间/.test(source)) return "start";
-    if (/end|结束时间|结束日期|截止时间|截止日期|毕业时间|离职时间/.test(source)) return "end";
+    if (/description|desc|描述|职责|内容|主要工作|工作成果|工作业绩|项目介绍|工作职责|工作内容|工作描述|职责描述|岗位职责|主要职责|jobdescription|responsibilities/.test(source)) return "description";
+    if (/startendtime|起止时间|起止年月|起止日期|daterange/.test(source)) return "dateRange";
+    if (/start|开始时间|开始日期|起始时间|起始日期|入学时间|入职时间|入学年月|入职年月|开始年月|起始年月|startdate|startperiod/.test(source)) return "start";
+    if (/end|结束时间|结束日期|截止时间|截止日期|毕业时间|离职时间|毕业年月|离职年月|结束年月|截止年月|enddate|endperiod/.test(source)) return "end";
     if (/summary|自我评价|自我介绍|个人优势|个人简介/.test(source)) return "summary";
     if (/skill|技能/.test(source)) return "skills";
     return parsed.rawKey || norm(label || element.id || element.name).slice(0, 60) || "unknown";
@@ -170,6 +286,14 @@
 
   function recordCardFor(element) {
     if (location.hostname.includes("join.qq.com")) return element.closest(".info_list");
+    // P&G puts every field of one repeatable entry inside an `apply-fields`
+    // container. The inner `apply-field` nodes are individual questions, while
+    // `apply-block` contains the whole section. Keep all date parts and the
+    // identity field on the same record index, even when only one entry exists.
+    if (location.hostname === "recruit.pg.com.cn") {
+      const card = element.closest('[class*="apply-fields"]');
+      if (card && card.querySelectorAll(FIELD_SELECTOR).length >= 2) return card;
+    }
     if (location.hostname.includes("vivo.com")) {
       const form = element.closest(".ux-standard-form");
       if (form) return form.parentElement?.parentElement?.parentElement || form;
@@ -188,6 +312,12 @@
       const controls = cursor.querySelectorAll(FIELD_SELECTOR).length;
       if (controls < 2 || controls > 40 || !cursor.parentElement) continue;
       const className = String(cursor.className || "");
+      // A single visible entry has no matching sibling yet. Explicit row/card
+      // containers still define one record; waiting for a second sibling makes
+      // the first entry's date parts look like several different records.
+      if (/(?:^|[\s_-])(?:resume|experience|education|project)[-_]?(?:row|record|entry|item|card)(?:[\s_-]|$)|(?:^|[\s_-])(?:record|entry)[-_]?(?:row|item|card)(?:[\s_-]|$)/i.test(className)
+        && !cursor.querySelector("button,[role=button]")
+        && [...cursor.children].filter((child) => child.querySelectorAll?.(FIELD_SELECTOR).length).length >= 2) return cursor;
       const siblings = [...cursor.parentElement.children].filter((node) =>
         node.tagName === cursor.tagName && String(node.className || "") === className &&
         node.querySelectorAll?.(FIELD_SELECTOR).length >= 2
@@ -227,13 +357,17 @@
   }
 
   function customSelectRoot(element) {
-    return element.closest(".atsx-select-selection,.ant-select,.ant-cascader-picker,.semi-select,.el-select,.arco-select,.arco-select-view,.ud__select,[class*=select-selector],[role=combobox]");
+    const known = element.closest(".atsx-select-selection,.ant-select,.ant-cascader-picker,.semi-select,.el-select,.arco-select,.arco-select-view,.ud__select,[class*=select-selector],[role=combobox]");
+    if (known) return known;
+    const generic = element.closest("[class*='-select']:not([class*='user-select']):not([class*='-selected']):not([class*='-selection']),[class*='_select']:not([class*='_selected']):not([class*='_selection']),[class*='select-view'],[class*='cascader']");
+    if (generic && element.readOnly) return generic;
+    return null;
   }
 
   function customSelectedText(element) {
     const root = customSelectRoot(element);
     if (!root) return "";
-    const selected = root.querySelector("[data-cy=selectedValue],.atsx-select-selection-selected-value,.ant-select-selection-item,.ant-cascader-picker-label,.semi-select-selection-text,.el-select__selected-item,.arco-select-view-value,.ud__select__selector__content");
+    const selected = root.querySelector("[data-cy=selectedValue],.atsx-select-selection-selected-value,.ant-select-selection-item,.ant-cascader-picker-label,.semi-select-selection-text,.el-select__selected-item,.arco-select-view-value,.ud__select__selector__content,[class*=select-selection-item]");
     return clean(selected?.textContent || "");
   }
 
@@ -264,7 +398,7 @@
   function discover() {
     const seenRadioGroups = new Set();
     const headings = headingItems();
-    const elements = [...document.querySelectorAll(FIELD_SELECTOR)].filter((element) => {
+    const elements = querySelectorAllDeep(FIELD_SELECTOR).filter((element) => {
       if (!discoverable(element)) return false;
       if (/验证码|短信码|密码|captcha|verification.?code|one.?time.?code/i.test(`${explicitLabel(element)} ${element.name} ${element.autocomplete}`)) return false;
       if (element.getAttribute("role") === "combobox" && element.querySelector("input,select")) return false;
@@ -280,9 +414,13 @@
     const drafts = elements.map((element, order) => {
       element.dataset.recruitmentId ||= `recruitment-${Date.now()}-${order}`;
       const parsed = parseStructuredId(element.id || element.name);
-      const label = explicitLabel(element);
+      const rawLabel = explicitLabel(element);
       const section = parsed.section || nearestSection(element, headings);
-      const key = semanticKey(element, label, parsed);
+      const key = semanticKey(element, rawLabel, parsed);
+      const datePartLabels = { startYear: "开始年份", startMonth: "开始月份", endYear: "结束年份", endMonth: "结束月份" };
+      const label = (/^\d+$/.test(rawLabel) || rawLabel === element.id || rawLabel === element.name
+        || /^(请选择|please select)$/i.test(rawLabel))
+        && datePartLabels[key] ? datePartLabels[key] : rawLabel;
       const recordIndex = Number.isInteger(parsed.recordIndex) ? parsed.recordIndex : null;
       const customRoot = customSelectRoot(element);
       return {
@@ -316,6 +454,9 @@
   }
 
   function sectionForButton(button, headings = headingItems()) {
+    const localTitle = clean(button.previousElementSibling?.textContent || "");
+    const localSection = sectionFromText(localTitle, headings);
+    if (localSection !== "other") return localSection;
     let text = "";
     for (const item of headings) if (item.node.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING) text = item.text;
     return sectionFromText(text, headings);
@@ -325,18 +466,37 @@
     const headings = headingItems();
     const counts = {};
     for (const field of fields) if (field.recordIndex != null) counts[field.section] = Math.max(counts[field.section] || 0, field.recordIndex + 1);
+    const ADD_TEXT_REGEX = /^(\+\s*)?(添加|新增|继续添加|add|add\s+more|add\s+new|add\s+another|add\s+a|add\s+an)\s*(一条|一项|更多|记录|经历|教育|学历|项目|教育经历|实习经历|工作经历|工作经验|项目经历|项目经验|education|experience|internship|project|work|record|entry|item)?$/i;
+    // Recruitment sites often render one control as "+ 添加 / Add". Match each
+    // language segment, while still rejecting labels with unrelated actions.
+    const isAddText = (value) => {
+      const parts = clean(value).split(/\s*[/／|｜]\s*/).filter(Boolean);
+      return parts.length > 0 && parts.length <= 2 && parts.every((part) => ADD_TEXT_REGEX.test(part));
+    };
     const candidates = [...document.querySelectorAll("button,[role=button],a,span,div")].filter((element) => {
       const text = clean(element.textContent);
-      return /^(\+\s*)?(添加|新增|继续添加)\s*(一条|一项|更多|记录|经历|教育|学历|项目|教育经历|实习经历|工作经历|工作经验|项目经历|项目经验)?$/.test(text) && element.getBoundingClientRect().width > 0;
-    }).filter((element) => ![...element.children].some((child) => /添加|新增/.test(clean(child.textContent))));
+      const ariaLabel = clean(element.getAttribute("aria-label") || "");
+      const matchedText = isAddText(text) || (ariaLabel && isAddText(ariaLabel));
+      const isIconOnly = /^\+\s*$/.test(text) && element.closest("[class*=repeat],[class*=array],[class*=record],[class*=list],[class*=card],[class*=section]");
+      return (matchedText || isIconOnly) && element.getBoundingClientRect().width > 0;
+    }).filter((element) => ![...element.children].some((child) => /添加|新增|add/i.test(clean(child.textContent))));
     const repeaters = [];
     for (const candidate of candidates) {
       const button = candidate.closest("button,[role=button],a") || candidate;
       if (!safeAddButton(button)) continue;
-      const section = /学历|教育经历|实习经历|工作经历|工作经验|项目经历|项目经验/.test(clean(button.textContent)) ? (/学历/.test(clean(button.textContent)) ? "education" : sectionFromText(clean(button.textContent), headings)) : sectionForButton(button, headings);
+      const combinedLabel = clean(`${button.textContent} ${button.getAttribute("aria-label") || ""}`);
+      const section = /学历|教育|education/i.test(combinedLabel)
+        ? (/学历/.test(combinedLabel) ? "education" : sectionFromText(combinedLabel, headings))
+        : /实习经历|实习经验|实习|internship/i.test(combinedLabel)
+          ? "experience"
+          : /工作经历|工作经验|工作|work/i.test(combinedLabel)
+            ? sectionFromText(combinedLabel, headings)
+            : /项目经历|项目经验|项目|project/i.test(combinedLabel)
+              ? "project"
+              : sectionForButton(button, headings);
       if (section === "other" || repeaters.some((item) => item.section === section)) continue;
       button.dataset.recruitmentAddId ||= `recruitment-add-${repeaters.length}-${Date.now()}`;
-      repeaters.push({ id: button.dataset.recruitmentAddId, section, currentCount: counts[section] || 0, label: clean(button.textContent) || "添加" });
+      repeaters.push({ id: button.dataset.recruitmentAddId, section, currentCount: counts[section] || 0, label: clean(button.textContent || button.getAttribute("aria-label")) || "添加" });
     }
     return repeaters;
   }
@@ -346,7 +506,7 @@
     // A button without type defaults to submit when placed inside a form.
     if (button.tagName === "BUTTON" && button.form && button.type !== "button") return false;
     if (button.tagName === "A" && button.getAttribute("href") && button.getAttribute("href") !== "#") return false;
-    return !/保存|提交|下一步|申请|完成/.test(clean(button.textContent));
+    return !/保存|提交|下一步|申请|完成|save|submit|next|apply/i.test(clean(`${button.textContent} ${button.getAttribute("aria-label") || ""}`));
   }
 
   function nativeSetter(element, value) {
@@ -581,6 +741,7 @@
 
   async function setValue(element, value, item = {}) {
     const text = Array.isArray(value) ? value.map((item, index) => `${index + 1}. ${item}`).join("\n") : String(value ?? "");
+    const datePart = /^(start|end)(Year|Month)$/.test(item.key || "");
     if (!discoverable(element) || element.getAttribute("aria-readonly") === "true") throw new Error("字段不可编辑");
     if (element.maxLength > 0 && text.length > element.maxLength) throw new Error(`内容超过字段上限 ${element.maxLength} 字，请缩短后重试`);
     if (["date", "month"].includes(element.type)) {
@@ -590,7 +751,7 @@
       if (!element.validity.valid) throw new Error("日期不符合网页限制，请手动选择");
       return;
     }
-    const dateLike = ["start", "end", "birthDate", "dateRange"].includes(item.key) || /日期|起止时间|date|calendar/i.test(`${item.label || ""} ${element.placeholder || ""} ${element.className || ""}`);
+    const dateLike = !datePart && (["start", "end", "birthDate", "dateRange"].includes(item.key) || /日期|起止时间|date|calendar/i.test(`${item.label || ""} ${element.placeholder || ""} ${element.className || ""}`));
     if (dateLike && (element.readOnly || element.type === "date" || element.closest("[class*=date],.ant-calendar-picker,.ant-picker,.el-date-editor,.arco-picker,.throne-biz-date-range-picker-wrapper"))) {
       await setDatePickerValue(element, text, item);
       return;
@@ -620,7 +781,9 @@
       const wantedParts = text.split(/\s*(?:\/|／|,|，)\s*/).map(clean).filter(Boolean);
       if (!wantedParts.length) throw new Error("该下拉框不支持自动清空");
       const current = norm(customSelectedText(element));
-      if (current && wantedParts.every((part) => current.includes(norm(part)))) return;
+      if (current && wantedParts.every((part) => datePart
+        ? Number(current.replace(/[年月]/g, "")) === Number(part)
+        : current.includes(norm(part)))) return;
       const isOpen = customRoot.getAttribute("aria-expanded") === "true" || /(?:^|\s)(?:atsx|ant|semi|el)-select-open(?:\s|$)/.test(String(customRoot.parentElement?.className || ""));
       if (!isOpen) customRoot.click();
       await delay(150);
@@ -631,7 +794,10 @@
         const aliases = new Set([wanted]);
         if (wanted === norm("应用经济学")) ["经济学", "经济学相关类"].forEach((alias) => aliases.add(norm(alias)));
         if (wanted === norm("硕士（Master）")) aliases.add(norm("硕士"));
-        const exact = nodes.find((node) => node.getAttribute("aria-disabled") !== "true" && !node.matches(":disabled,[class*=disabled]") && aliases.has(norm(node.textContent)));
+        const samePart = (candidate) => datePart && /^\d{1,4}$/.test(wanted) &&
+          Number(norm(candidate).replace(/[年月]/g, "")) === Number(wanted);
+        const exact = nodes.find((node) => node.getAttribute("aria-disabled") !== "true" && !node.matches(":disabled,[class*=disabled]") &&
+          (aliases.has(norm(node.textContent)) || samePart(node.textContent)));
         if (exact) return exact;
         const partial = nodes.filter((node) => node.getAttribute("aria-disabled") !== "true" && !node.matches(":disabled,[class*=disabled]")
           && [...aliases].some((alias) => alias.length >= 3 && norm(node.textContent).includes(alias)));
@@ -678,14 +844,17 @@
       const chosen = norm(freshFieldValue(item, element));
       const finalPart = norm(wantedParts.at(-1)).replace(/(特别行政区|自治区|省|市)$/g, "");
       const chosenComparable = chosen.replace(/(特别行政区|自治区|省|市)$/g, "");
-      const accepted = chosenComparable && (chosenComparable.includes(finalPart) || finalPart.includes(chosenComparable)
+      const accepted = chosenComparable && ((datePart && Number(chosenComparable.replace(/[年月]/g, "")) === Number(finalPart))
+        || chosenComparable.includes(finalPart) || finalPart.includes(chosenComparable)
         || (norm(text) === norm("应用经济学") && chosenComparable.includes(norm("经济学")))
         || (norm(text) === norm("硕士（Master）") && chosenComparable === norm("硕士")));
       if (!accepted) throw new Error("下拉框选中值未稳定写入");
       return;
     }
     if (element.tagName === "SELECT") {
-      const option = [...element.options].find((item) => !item.disabled && !item.closest("optgroup[disabled]") && (norm(item.textContent) === norm(text) || item.value === text));
+      const option = [...element.options].find((item) => !item.disabled && !item.closest("optgroup[disabled]") &&
+        (norm(item.textContent) === norm(text) || item.value === text ||
+          (datePart && Number(norm(item.textContent).replace(/[年月]/g, "")) === Number(text))));
       if (!option) throw new Error("下拉框没有完全匹配的选项");
       element.value = option.value; element.dispatchEvent(new Event("change", { bubbles: true })); return;
     }
@@ -710,7 +879,7 @@
         const current = Math.max(0, ...fields.filter((field) => field.section === section && field.recordIndex != null).map((field) => field.recordIndex + 1));
         if (current >= desired) break;
         const repeater = discoverRepeaters(fields).find((item) => item.section === section);
-        const button = repeater && document.querySelector(`[data-recruitment-add-id="${CSS.escape(repeater.id)}"]`);
+        const button = repeater && (findRecruitmentAddButton(repeater.id) || document.querySelector(`[data-recruitment-add-id="${CSS.escape(repeater.id)}"]`));
         if (!button || !safeAddButton(button)) throw new Error(`未找到“${section}”区块的安全添加按钮`);
         button.click(); added.push(section);
         let increased = false;
@@ -735,7 +904,7 @@
     const currentFields = discover();
     const directField = item.fieldId && currentFields.find((field) => field.id === item.fieldId);
     if (directField && fieldMatchesPlanItem(directField, item, true)) {
-      const direct = document.querySelector(`[data-recruitment-id="${CSS.escape(directField.id)}"]`);
+      const direct = findRecruitmentElement(directField.id);
       if (direct) return { element: direct, fieldId: directField.id, relocated: false };
     }
 
@@ -756,7 +925,7 @@
     }).filter((entry) => entry.score >= 28).sort((a, b) => b.score - a.score);
     if (!candidates.length || (candidates[1] && candidates[0].score === candidates[1].score)) return null;
     const field = candidates[0].field;
-    const element = document.querySelector(`[data-recruitment-id="${CSS.escape(field.id)}"]`);
+    const element = findRecruitmentElement(field.id);
     return element ? { element, fieldId: field.id, relocated: true } : null;
   }
 
@@ -798,8 +967,14 @@
       const candidates = finalFields.filter((field) => fieldMatchesPlanItem(field, item, true));
       const field = candidates.find((candidate) => candidate.id === result.resolvedFieldId) || (candidates.length === 1 ? candidates[0] : null);
       let matches = field && clean(field.value) === clean(item.value);
+      if (field && /^(start|end)(Year|Month)$/.test(item.key || "")) {
+        const actualPart = clean(field.value).replace(/[年月]/g, "");
+        const expectedPart = clean(item.value).replace(/[年月]/g, "");
+        matches = /^\d{1,4}$/.test(actualPart) && /^\d{1,4}$/.test(expectedPart)
+          && Number(actualPart) === Number(expectedPart);
+      }
       if (field && ["start", "end", "birthDate"].includes(item.key)) {
-        const element = document.querySelector(`[data-recruitment-id="${CSS.escape(field.id)}"]`);
+        const element = findRecruitmentElement(field.id);
         const expectedDate = dateAtControlPrecision(item.value, item.key, element);
         matches = Boolean(expectedDate) && dateAtControlPrecision(field.value, item.key, element) === expectedDate;
       }
@@ -856,7 +1031,7 @@
   }
 
   // Kept inside Chrome's isolated content-script world for real-site compatibility tests.
-  window.__recruitmentCopilotTest = { discover, discoverRepeaters, ensureRecords, executePlan, applyAgentPlan, semanticKey, assignRecordIndexes };
+  window.__recruitmentCopilotTest = { discover, discoverRepeaters, ensureRecords, executePlan, applyAgentPlan, semanticKey, assignRecordIndexes, querySelectorAllDeep, findRecruitmentElement, findRecruitmentAddButton, sectionFromText, customSelectRoot };
 
   let mutationBusy = false;
   chrome.runtime.onMessage.addListener((message, _sender, respond) => {
@@ -882,7 +1057,7 @@
       }
       if (message.type === "RECRUITMENT_HIGHLIGHT") {
         highlighted?.style.removeProperty("outline");
-        highlighted = document.querySelector(`[data-recruitment-id="${CSS.escape(message.id)}"]`);
+        highlighted = findRecruitmentElement(message.id);
         if (highlighted) { highlighted.style.outline = "2px solid #2563eb"; highlighted.scrollIntoView({ behavior: "smooth", block: "center" }); }
         return { ok: Boolean(highlighted) };
       }

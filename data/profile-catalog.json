@@ -3,27 +3,55 @@
   "profiles": [
     {
       "id": "ai_product_general",
-      "label": "AI产品—通用",
+      "label": "AI产品｜应用与商业化",
       "status": "ready",
       "description": "当前完整版本，突出AI产品落地、Agent、RAG、Evals、增长与商业化。",
+      "advice": {
+        "positioning": "主投：AI 应用产品经理",
+        "fit": ["AI产品经理", "智能体/企业AI产品", "商业化、策略或行业产品"],
+        "caution": "不作为纯算法研发或泛C端产品的首选简历。"
+      },
       "file": "profiles/ai-product-general.json",
       "prompt": "目标：AI产品经理通用方向。根据岗位与字段语义，综合突出Agent工作流、RAG、Evals、Badcase、0—1验证、用户旅程、产品机制、增长实验、商业化和数据闭环。"
     },
     {
       "id": "ai_product_aigc",
-      "label": "AI产品—AIGC向",
+      "label": "AIGC产品｜内容与创作",
       "status": "ready",
       "description": "突出AIGC创作工具、多模态内容工作流、创作者生态、生成质量评测与增长闭环。",
+      "advice": {
+        "positioning": "精准投：AIGC 内容与创作产品",
+        "fit": ["AIGC产品", "创作工具/创作者平台", "多模态内容与内容社区"],
+        "caution": "仅用于内容生成、创作者或多模态场景，不建议投企业数字化岗位。"
+      },
       "file": "profiles/ai-product-aigc.json",
       "prompt": "目标：AIGC方向AI产品经理。重点突出多模态内容生成、创作者工具、内容生产工作流、生成质量评估、Prompt/Seed机制、供给增长和产品化落地；不得虚构未写入主库的项目或指标。"
     },
     {
       "id": "tech_sales",
-      "label": "科技销售",
-      "status": "draft",
-      "description": "方向已建立，解决方案销售、客户转化和商业表达内容待补充。",
+      "label": "AI解决方案｜售前与商业化",
+      "status": "ready",
+      "description": "突出解决方案表达、商业化转化、ROI、客户需求诊断与跨团队交付。",
+      "advice": {
+        "positioning": "机会投：AI 解决方案与商业化",
+        "fit": ["解决方案顾问/售前", "行业数字化与AI商业化", "解决方案产品/客户成功"],
+        "caution": "更适合方案与交付岗位；不主投纯KA直销或强回款销售岗。"
+      },
       "file": "profiles/tech-sales.json",
       "prompt": "目标：科技销售方向。重点突出客户需求发现、解决方案表达、产品演示、商业转化、ROI、跨团队交付和英语沟通；不得虚构客户、合同、销售额或回款数据。"
+    },
+    {
+      "id": "mkt_marketing",
+      "label": "产品市场｜GTM与增长",
+      "status": "ready",
+      "description": "突出GTM策略、市场价值主张、渠道增长、内容传播、增长归因与商业变现。",
+      "advice": {
+        "positioning": "第二主线：产品市场与增长",
+        "fit": ["产品市场/GTM", "增长营销/商业化营销", "海外产品营销与市场运营"],
+        "caution": "不主投传统品牌公关、媒介采买或纯线下活动执行。"
+      },
+      "file": "profiles/mkt-marketing.json",
+      "prompt": "目标：MKT/市场方向。重点突出市场洞察、GTM策略、价值主张、渠道与内容增长、用户转化、归因分析、商业化和跨团队协同；不得虚构市场预算、投放金额、客户、销售额或未写明的业绩。"
     }
   ]
 }

@@ -175,8 +175,14 @@ test("public auto-plan API uses the agent for deterministic matches too", async 
   assert.equal(result.plan[0].needsConfirmation, false);
 });
 
-test("draft directions cannot invoke the automated agent", async () => {
-  await assert.rejects(autoPlan({ profileId: "tech_sales", page: { fields: [field()] } }, { askModel: async () => { throw new Error("must not call"); } }), /待补充/);
+test("tech-sales direction can invoke the automated agent", async () => {
+  const stages = [];
+  const result = await autoPlan({ profileId: "tech_sales", page: { fields: [field()] } }, { askModel: async (_system, user) => {
+    const request = JSON.parse(user); stages.push(request.stage);
+    return [decision(request.proposed?.[0]?.path || "basics.name")];
+  } });
+  assert.deepEqual(stages, ["interpret", "review"]);
+  assert.ok(["agent-reviewed", "local-verified"].includes(result.plan[0].source));
 });
 
 test("model approval cannot turn internship facts into an unrelated full-time record", async () => {
